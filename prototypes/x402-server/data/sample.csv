@@ -1,0 +1,21 @@
+id,name,value,category,timestamp,description
+1,Alpha,100,A,2024-01-01,First entry in category A
+2,Beta,200,B,2024-01-02,Second entry in category B
+3,Gamma,300,A,2024-01-03,Third entry in category A
+4,Delta,400,C,2024-01-04,Fourth entry in category C
+5,Epsilon,500,B,2024-01-05,Fifth entry in category B
+6,Zeta,600,A,2024-01-06,Sixth entry in category A
+7,Eta,700,C,2024-01-07,Seventh entry in category C
+8,Theta,800,B,2024-01-08,Eighth entry in category B
+9,Iota,900,A,2024-01-09,Ninth entry in category A
+10,Kappa,1000,C,2024-01-10,Tenth entry in category C
+11,Lambda,1100,A,2024-01-11,Eleventh entry in category A
+12,Mu,1200,B,2024-01-12,Twelfth entry in category B
+13,Nu,1300,C,2024-01-13,Thirteenth entry in category C
+14,Xi,1400,A,2024-01-14,Fourteenth entry in category A
+15,Omicron,1500,B,2024-01-15,Fifteenth entry in category B
+16,Pi,1600,C,2024-01-16,Sixteenth entry in category C
+17,Rho,1700,A,2024-01-17,Seventeenth entry in category A
+18,Sigma,1800,B,2024-01-18,Eighteenth entry in category B
+19,Tau,1900,C,2024-01-19,Nineteenth entry in category C
+20,Upsilon,2000,A,2024-01-20,Twentieth entry in category A

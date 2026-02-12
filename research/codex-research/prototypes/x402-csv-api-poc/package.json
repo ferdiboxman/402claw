@@ -1,0 +1,12 @@
+{
+  "name": "x402-csv-api-poc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Prototype: CSV-to-API with x402-style payment challenge and mock facilitator",
+  "scripts": {
+    "start": "node src/cli.js start",
+    "demo": "node src/cli.js demo",
+    "test": "node --test"
+  }
+}
