@@ -8,6 +8,8 @@ import {
 const PAYMENT_REQUIRED_HEADER = "payment-required";
 const PAYMENT_SIGNATURE_HEADER = "payment-signature";
 const PAYMENT_RESPONSE_HEADER = "payment-response";
+const PAYMENT_IDEMPOTENCY_HEADER = "x-payment-idempotency-key";
+const PAYMENT_DEDUPED_HEADER = "x-payment-deduped";
 
 const DEFAULT_X402_NETWORK = "eip155:84532";
 const DEFAULT_PAY_TO = "0x402c1aw000000000000000000000000000000000";
@@ -15,6 +17,9 @@ const DEFAULT_USAGE_EVENT_LIMIT = 5000;
 const USAGE_EVENTS_KV_KEY = "usage_events_v1";
 const RATE_LIMIT_MEMORY_PREFIX = "rl_v1";
 const USAGE_QUOTA_MEMORY_PREFIX = "uq_v1";
+const SPEND_CAP_MEMORY_PREFIX = "sc_v1";
+const SETTLEMENT_MEMORY_PREFIX = "st_v1";
+const DEFAULT_SETTLEMENT_TTL_SECONDS = 45 * 24 * 60 * 60;
 
 function jsonResponse(status, payload, headers = {}) {
   return new Response(JSON.stringify(payload), {
@@ -132,6 +137,25 @@ function normalizeUsageLimit(value) {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+function normalizeSpendLimit(value) {
+  if (!value || typeof value !== "object") return undefined;
+
+  const out = {};
+  const dailySpendUsd = toPositiveNumber(
+    value.dailySpendUsd ?? value.dailyUsd ?? value.dayUsd ?? value.daily,
+    0,
+  );
+  const monthlySpendUsd = toPositiveNumber(
+    value.monthlySpendUsd ?? value.monthlyUsd ?? value.monthUsd ?? value.monthly,
+    0,
+  );
+
+  if (dailySpendUsd > 0) out.dailySpendUsd = dailySpendUsd;
+  if (monthlySpendUsd > 0) out.monthlySpendUsd = monthlySpendUsd;
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function normalizeTenantRecord(record = {}) {
   const workerName = toText(record.workerName);
   if (!workerName) return null;
@@ -160,6 +184,7 @@ function normalizeTenantRecord(record = {}) {
     x402Enabled,
     rateLimit: normalizeRateLimit(record.rateLimit),
     usageLimit: normalizeUsageLimit(record.usageLimit),
+    spendLimit: normalizeSpendLimit(record.spendLimit ?? record.spendCaps ?? record.spendCap),
   };
 }
 
@@ -488,6 +513,7 @@ async function verifyPayment({
 
 async function settlePayment({
   payment,
+  idempotencyKey,
   facilitatorUrls,
   facilitatorApiKey,
   allowLocalFallback = false,
@@ -521,9 +547,13 @@ async function settlePayment({
         method: "POST",
         headers: {
           "content-type": "application/json",
+          ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
           ...authHeaders(facilitatorApiKey),
         },
-        body: JSON.stringify({ payment }),
+        body: JSON.stringify({
+          payment,
+          ...(idempotencyKey ? { idempotencyKey } : {}),
+        }),
       });
 
       if (!response.ok) {
@@ -570,6 +600,301 @@ function hashIdentifier(value) {
     hash = Math.imul(hash, 16777619);
   }
   return `id_${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function toUsdMicros(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.max(0, Math.round(parsed * 1_000_000));
+}
+
+function microsToUsd(value) {
+  const micros = Number(value);
+  if (!Number.isFinite(micros) || micros <= 0) return 0;
+  return Math.round((micros / 1_000_000) * 1_000_000) / 1_000_000;
+}
+
+function resolveBillingKvBinding(env = {}) {
+  if (env.BILLING_KV && typeof env.BILLING_KV.get === "function" && typeof env.BILLING_KV.put === "function") {
+    return env.BILLING_KV;
+  }
+  if (env.RATE_KV && typeof env.RATE_KV.get === "function" && typeof env.RATE_KV.put === "function") {
+    return env.RATE_KV;
+  }
+  return null;
+}
+
+async function readBillingCounter({ env, memoryBillingCounters, key }) {
+  const kv = resolveBillingKvBinding(env);
+  if (kv) {
+    try {
+      const raw = await kv.get(key);
+      if (!raw) return 0;
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  return memoryBillingCounters.get(key) || 0;
+}
+
+async function writeBillingCounter({
+  env,
+  memoryBillingCounters,
+  key,
+  value,
+  windowSeconds,
+}) {
+  const kv = resolveBillingKvBinding(env);
+  if (kv) {
+    await kv.put(key, String(value), {
+      expirationTtl: Math.max(60, windowSeconds * 2),
+    });
+    return;
+  }
+
+  memoryBillingCounters.set(key, value);
+}
+
+async function readSettlementRecord({ env, memorySettlements, key }) {
+  const kv = resolveBillingKvBinding(env);
+  if (kv) {
+    try {
+      const raw = await kv.get(key);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return memorySettlements.get(key) || null;
+}
+
+async function writeSettlementRecord({
+  env,
+  memorySettlements,
+  key,
+  record,
+  ttlSeconds = DEFAULT_SETTLEMENT_TTL_SECONDS,
+}) {
+  const kv = resolveBillingKvBinding(env);
+  if (kv) {
+    await kv.put(key, JSON.stringify(record), {
+      expirationTtl: Math.max(60, ttlSeconds),
+    });
+    return;
+  }
+
+  memorySettlements.set(key, record);
+}
+
+function resolveSettlementIdempotencyKey({
+  payment,
+  tenantId,
+  resourcePath,
+}) {
+  const explicit = toText(
+    payment?.idempotencyKey
+      ?? payment?.idempotency_key
+      ?? payment?.idempotency
+      ?? payment?.paymentId
+      ?? payment?.payment_id
+      ?? payment?.id,
+  );
+  if (explicit) {
+    return `${tenantId}:${explicit}`;
+  }
+
+  return `${tenantId}:${hashIdentifier(JSON.stringify({
+    signature: toText(payment?.signature),
+    resource: toText(payment?.resource || resourcePath),
+    amount: toText(payment?.amount),
+    payTo: toText(payment?.payTo),
+  }))}`;
+}
+
+function settlementLedgerId({ tenantId, idempotencyKey }) {
+  return `settle_${hashIdentifier(`${tenantId}:${idempotencyKey}`)}`;
+}
+
+function hasControlDbBinding(env = {}) {
+  return Boolean(env.CONTROL_DB && typeof env.CONTROL_DB.prepare === "function");
+}
+
+function parseJsonRecord(raw, fallback = null) {
+  if (!raw || typeof raw !== "string") return fallback;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function settlementFacilitatorTx(settlement) {
+  return toText(
+    settlement?.receipt?.facilitatorTx
+      ?? settlement?.receipt?.txHash
+      ?? settlement?.receipt?.transactionHash
+      ?? settlement?.receipt?.tx_hash,
+  );
+}
+
+async function readSettlementFromControlDb({ env, tenantId, idempotencyKey }) {
+  if (!hasControlDbBinding(env)) return null;
+
+  try {
+    const ledgerId = settlementLedgerId({ tenantId, idempotencyKey });
+    const row = await env.CONTROL_DB
+      .prepare("SELECT metadata, created_at FROM ledger WHERE id = ?1 LIMIT 1")
+      .bind(ledgerId)
+      .first();
+    if (!row?.metadata) return null;
+
+    const metadata = parseJsonRecord(row.metadata, {});
+    return {
+      settled: true,
+      deduped: true,
+      tenantId,
+      ledgerId,
+      idempotencyKey,
+      facilitatorUrl: toText(metadata.facilitatorUrl || "control_db"),
+      facilitatorTx: toText(metadata.facilitatorTx),
+      amountUsd: toPositiveNumber(metadata.amountUsd, 0),
+      settledAt: toText(metadata.settledAt || row.created_at, new Date().toISOString()),
+      receipt: metadata.receipt && typeof metadata.receipt === "object" ? metadata.receipt : {},
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function persistSettlementToControlDb({
+  env,
+  tenant,
+  tenantId,
+  callerHash,
+  amountUsd,
+  idempotencyKey,
+  settlement,
+  requestId,
+  resourcePath,
+  settledAt,
+}) {
+  if (!hasControlDbBinding(env)) {
+    return {
+      persisted: false,
+      reason: "control_db_unconfigured",
+      inserted: false,
+      ledgerId: null,
+    };
+  }
+
+  const now = toText(settledAt, new Date().toISOString());
+  const ledgerId = settlementLedgerId({ tenantId, idempotencyKey });
+  const slug = toText(tenant?.slug, tenantId).toLowerCase();
+  const ownerUserId = toText(tenant?.ownerUserId, "unknown");
+  const facilitatorTx = settlementFacilitatorTx(settlement);
+  const metadata = {
+    kind: "payment_settlement",
+    requestId,
+    tenantId,
+    tenantSlug: slug,
+    resource: resourcePath,
+    amountUsd,
+    callerHash,
+    idempotencyKey,
+    facilitatorUrl: settlement?.facilitatorUrl || null,
+    facilitatorTx: facilitatorTx || null,
+    settledAt: now,
+    receipt: settlement?.receipt && typeof settlement.receipt === "object" ? settlement.receipt : {},
+  };
+
+  try {
+    await env.CONTROL_DB
+      .prepare(`
+        INSERT INTO tenants (id, slug, owner_id, config, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        ON CONFLICT(id) DO UPDATE SET
+          slug = excluded.slug,
+          owner_id = excluded.owner_id,
+          updated_at = excluded.updated_at
+      `)
+      .bind(
+        tenantId,
+        slug || tenantId,
+        ownerUserId,
+        JSON.stringify({
+          slug: slug || tenantId,
+          tenantId,
+          ownerUserId,
+          workerName: toText(tenant?.workerName),
+          updatedAt: now,
+        }),
+        now,
+        now,
+      )
+      .run();
+
+    const ledgerResult = await env.CONTROL_DB
+      .prepare(`
+        INSERT OR IGNORE INTO ledger (id, tenant_id, type, amount, metadata, created_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+      `)
+      .bind(
+        ledgerId,
+        tenantId,
+        "credit",
+        Number.isFinite(amountUsd) ? amountUsd : 0,
+        JSON.stringify(metadata),
+        now,
+      )
+      .run();
+
+    const inserted = Number(ledgerResult?.meta?.changes || 0) > 0;
+    if (inserted) {
+      await env.CONTROL_DB
+        .prepare(`
+          INSERT INTO audit_log (id, user_id, action, metadata, created_at)
+          VALUES (?1, ?2, ?3, ?4, ?5)
+        `)
+        .bind(
+          `audit_${randomHex(8)}`,
+          null,
+          "payment_settled",
+          JSON.stringify({
+            amountUsd,
+            facilitatorTx: facilitatorTx || null,
+            tenant: tenantId,
+            callerHash,
+            timestamp: now,
+            idempotencyKey,
+            requestId,
+          }),
+          now,
+        )
+        .run();
+    }
+
+    return {
+      persisted: true,
+      inserted,
+      ledgerId,
+      facilitatorTx,
+      metadata,
+    };
+  } catch (error) {
+    return {
+      persisted: false,
+      reason: error?.message || "control_db_write_failed",
+      inserted: false,
+      ledgerId,
+      metadata,
+    };
+  }
 }
 
 function resolveRawCallerId(request) {
@@ -802,6 +1127,241 @@ function buildUsageQuotaWindows(nowMs) {
   };
 }
 
+function formatUsdHeader(value) {
+  return String(Math.round(toPositiveNumber(value, 0) * 1_000_000) / 1_000_000);
+}
+
+async function enforceTenantSpendLimit({
+  env,
+  memoryBillingCounters,
+  tenantId,
+  spendLimit,
+  chargeUsd,
+  nowMs,
+}) {
+  if (!spendLimit || typeof spendLimit !== "object") {
+    return { allowed: true, headers: {} };
+  }
+
+  const chargeMicros = toUsdMicros(chargeUsd);
+  if (chargeMicros <= 0) {
+    return { allowed: true, headers: {} };
+  }
+
+  const windows = buildUsageQuotaWindows(nowMs);
+  const checks = [];
+
+  if (toPositiveNumber(spendLimit.dailySpendUsd, 0) > 0) {
+    checks.push({
+      windowName: "day",
+      key: `${SPEND_CAP_MEMORY_PREFIX}:${tenantId}:day:${windows.day.bucket}`,
+      limitMicros: toUsdMicros(spendLimit.dailySpendUsd),
+      resetAt: windows.day.resetAt,
+      windowSeconds: windows.day.secondsToReset,
+    });
+  }
+
+  if (toPositiveNumber(spendLimit.monthlySpendUsd, 0) > 0) {
+    checks.push({
+      windowName: "month",
+      key: `${SPEND_CAP_MEMORY_PREFIX}:${tenantId}:month:${windows.month.bucket}`,
+      limitMicros: toUsdMicros(spendLimit.monthlySpendUsd),
+      resetAt: windows.month.resetAt,
+      windowSeconds: windows.month.secondsToReset,
+    });
+  }
+
+  if (checks.length === 0) {
+    return { allowed: true, headers: {} };
+  }
+
+  for (const check of checks) {
+    const currentMicros = await readBillingCounter({
+      env,
+      memoryBillingCounters,
+      key: check.key,
+    });
+    const projectedMicros = currentMicros + chargeMicros;
+    check.currentMicros = currentMicros;
+    check.projectedMicros = projectedMicros;
+
+    if (projectedMicros > check.limitMicros) {
+      return {
+        allowed: false,
+        spendWindow: check.windowName,
+        retryAfter: Math.max(1, check.resetAt - Math.floor(nowMs / 1000)),
+        limitUsd: microsToUsd(check.limitMicros),
+        currentUsd: microsToUsd(currentMicros),
+        projectedUsd: microsToUsd(projectedMicros),
+        headers: {
+          "Retry-After": String(Math.max(1, check.resetAt - Math.floor(nowMs / 1000))),
+          "X-Spend-Limit": formatUsdHeader(microsToUsd(check.limitMicros)),
+          "X-Spend-Current": formatUsdHeader(microsToUsd(currentMicros)),
+          "X-Spend-Projected": formatUsdHeader(microsToUsd(projectedMicros)),
+          "X-Spend-Remaining": formatUsdHeader(microsToUsd(Math.max(0, check.limitMicros - currentMicros))),
+          "X-Spend-Reset": String(check.resetAt),
+          "X-Spend-Window": check.windowName,
+        },
+      };
+    }
+  }
+
+  const headers = {};
+  for (const check of checks) {
+    const remainingMicros = Math.max(0, check.limitMicros - check.projectedMicros);
+    const prefix = check.windowName === "day" ? "X-Spend-Day" : "X-Spend-Month";
+    headers[`${prefix}-Limit`] = formatUsdHeader(microsToUsd(check.limitMicros));
+    headers[`${prefix}-Current`] = formatUsdHeader(microsToUsd(check.currentMicros));
+    headers[`${prefix}-Projected`] = formatUsdHeader(microsToUsd(check.projectedMicros));
+    headers[`${prefix}-Remaining`] = formatUsdHeader(microsToUsd(remainingMicros));
+    headers[`${prefix}-Reset`] = String(check.resetAt);
+  }
+
+  return {
+    allowed: true,
+    headers,
+  };
+}
+
+async function incrementTenantSpendLimit({
+  env,
+  memoryBillingCounters,
+  tenantId,
+  spendLimit,
+  amountUsd,
+  nowMs,
+}) {
+  if (!spendLimit || typeof spendLimit !== "object") return;
+  const amountMicros = toUsdMicros(amountUsd);
+  if (amountMicros <= 0) return;
+
+  const windows = buildUsageQuotaWindows(nowMs);
+  const writes = [];
+
+  if (toPositiveNumber(spendLimit.dailySpendUsd, 0) > 0) {
+    writes.push({
+      key: `${SPEND_CAP_MEMORY_PREFIX}:${tenantId}:day:${windows.day.bucket}`,
+      windowSeconds: windows.day.secondsToReset,
+    });
+  }
+
+  if (toPositiveNumber(spendLimit.monthlySpendUsd, 0) > 0) {
+    writes.push({
+      key: `${SPEND_CAP_MEMORY_PREFIX}:${tenantId}:month:${windows.month.bucket}`,
+      windowSeconds: windows.month.secondsToReset,
+    });
+  }
+
+  for (const write of writes) {
+    const current = await readBillingCounter({
+      env,
+      memoryBillingCounters,
+      key: write.key,
+    });
+    const next = current + amountMicros;
+    await writeBillingCounter({
+      env,
+      memoryBillingCounters,
+      key: write.key,
+      value: next,
+      windowSeconds: write.windowSeconds,
+    });
+  }
+}
+
+async function lookupSettlementByIdempotency({
+  env,
+  memorySettlements,
+  tenantId,
+  idempotencyKey,
+}) {
+  const key = `${SETTLEMENT_MEMORY_PREFIX}:${tenantId}:${idempotencyKey}`;
+  const existing = await readSettlementRecord({
+    env,
+    memorySettlements,
+    key,
+  });
+  if (existing && typeof existing === "object") {
+    return {
+      ...existing,
+      deduped: true,
+      source: "cache",
+    };
+  }
+
+  const fromControlDb = await readSettlementFromControlDb({
+    env,
+    tenantId,
+    idempotencyKey,
+  });
+  if (!fromControlDb) return null;
+
+  await writeSettlementRecord({
+    env,
+    memorySettlements,
+    key,
+    record: fromControlDb,
+  });
+
+  return {
+    ...fromControlDb,
+    deduped: true,
+    source: "control_db",
+  };
+}
+
+async function persistSettlementState({
+  env,
+  memorySettlements,
+  tenant,
+  tenantId,
+  callerHash,
+  amountUsd,
+  idempotencyKey,
+  settlement,
+  requestId,
+  resourcePath,
+  settledAt,
+}) {
+  const key = `${SETTLEMENT_MEMORY_PREFIX}:${tenantId}:${idempotencyKey}`;
+  const normalizedSettlement = {
+    settled: true,
+    deduped: false,
+    tenantId,
+    idempotencyKey,
+    settledAt: toText(settledAt, new Date().toISOString()),
+    facilitatorUrl: settlement?.facilitatorUrl || null,
+    facilitatorTx: settlementFacilitatorTx(settlement) || null,
+    receipt: settlement?.receipt && typeof settlement.receipt === "object" ? settlement.receipt : {},
+    amountUsd: toPositiveNumber(amountUsd, 0),
+  };
+
+  await writeSettlementRecord({
+    env,
+    memorySettlements,
+    key,
+    record: normalizedSettlement,
+  });
+
+  const controlDbWrite = await persistSettlementToControlDb({
+    env,
+    tenant,
+    tenantId,
+    callerHash,
+    amountUsd,
+    idempotencyKey,
+    settlement,
+    requestId,
+    resourcePath,
+    settledAt,
+  });
+
+  return {
+    settlementRecord: normalizedSettlement,
+    controlDbWrite,
+  };
+}
+
 async function enforceTenantUsageLimit({
   env,
   memoryRateCounters,
@@ -947,6 +1507,8 @@ export function createCloudflareDispatcherWorker(options = {}) {
   );
   const usageEvents = [];
   const memoryRateCounters = new Map();
+  const memoryBillingCounters = new Map();
+  const memorySettlements = new Map();
 
   function recordUsageEvent(event, { env, ctx } = {}) {
     usageEvents.push(event);
@@ -1146,9 +1708,12 @@ export function createCloudflareDispatcherWorker(options = {}) {
       const allowLocalPaymentFallback = shouldAllowLocalPaymentFallback(env);
       let payment = null;
       let settlement = null;
+      let settlementIdempotencyKey = null;
+      let paymentRequirement = null;
+      let responseSpendHeaders = {};
 
       if (useEdgePayment) {
-        const requirement = createPaymentRequirement({
+        paymentRequirement = createPaymentRequirement({
           tenant,
           resourcePath: forwardedPath,
           env,
@@ -1157,7 +1722,7 @@ export function createCloudflareDispatcherWorker(options = {}) {
         payment = decodePaymentPayload(request.headers.get(PAYMENT_SIGNATURE_HEADER));
         if (!payment) {
           const response = paymentMissingResponse({
-            requirement,
+            requirement: paymentRequirement,
             requestId,
             tenantId: dispatch.tenantId,
             reason: "missing_payment_signature",
@@ -1187,7 +1752,7 @@ export function createCloudflareDispatcherWorker(options = {}) {
 
         const verified = await verifyPayment({
           payment,
-          requirement,
+          requirement: paymentRequirement,
           facilitatorUrls,
           facilitatorApiKey,
           allowLocalFallback: allowLocalPaymentFallback,
@@ -1195,7 +1760,7 @@ export function createCloudflareDispatcherWorker(options = {}) {
 
         if (!verified.isValid) {
           const response = paymentMissingResponse({
-            requirement,
+            requirement: paymentRequirement,
             requestId,
             tenantId: dispatch.tenantId,
             reason: verified.reason || "invalid_payment",
@@ -1221,6 +1786,72 @@ export function createCloudflareDispatcherWorker(options = {}) {
           }, { env, ctx });
 
           return response;
+        }
+
+        settlementIdempotencyKey = resolveSettlementIdempotencyKey({
+          payment,
+          tenantId: dispatch.tenantId,
+          resourcePath: forwardedPath,
+        });
+
+        const existingSettlement = await lookupSettlementByIdempotency({
+          env,
+          memorySettlements,
+          tenantId: dispatch.tenantId,
+          idempotencyKey: settlementIdempotencyKey,
+        });
+        if (existingSettlement?.settled) {
+          settlement = {
+            ...existingSettlement,
+            settled: true,
+            deduped: true,
+            attempts: [{ facilitatorUrl: existingSettlement.source || "cache", reason: "deduped" }],
+          };
+        } else {
+          const spendLimitResult = await enforceTenantSpendLimit({
+            env,
+            memoryBillingCounters,
+            tenantId: dispatch.tenantId,
+            spendLimit: tenant.spendLimit,
+            chargeUsd: priceUsd,
+            nowMs: startedAt,
+          });
+          if (!spendLimitResult.allowed) {
+            recordUsageEvent({
+              timestamp: Date.now(),
+              requestId,
+              tenantId: dispatch.tenantId,
+              apiId: tenant.slug || dispatch.workerName,
+              endpoint: forwardedPath,
+              owner: tenant.owner || "@unknown",
+              directory: tenant.directory || "APIs",
+              callerId,
+              status: 402,
+              latencyMs: Date.now() - startedAt,
+              billedUsd: 0,
+              priceUsd,
+              lifecycle: "spend_cap_exceeded",
+              billable: false,
+              countable: false,
+            }, { env, ctx });
+
+            return jsonResponse(402, {
+              ok: false,
+              error: "cap_exceeded",
+              requestId,
+              tenantId: dispatch.tenantId,
+              window: spendLimitResult.spendWindow || "unknown",
+              limitUsd: spendLimitResult.limitUsd || 0,
+              currentUsd: spendLimitResult.currentUsd || 0,
+              projectedUsd: spendLimitResult.projectedUsd || 0,
+            }, {
+              "x-request-id": requestId,
+              "x-tenant-id": dispatch.tenantId,
+              ...responseRateHeaders,
+              ...(spendLimitResult.headers || {}),
+            });
+          }
+          responseSpendHeaders = spendLimitResult.headers || {};
         }
       }
 
@@ -1266,29 +1897,29 @@ export function createCloudflareDispatcherWorker(options = {}) {
 
       const responseLimitHeaders = {
         ...responseRateHeaders,
+        ...responseSpendHeaders,
         ...(usageLimitResult.headers || {}),
       };
 
       try {
         const upstream = await worker.fetch(forwardedRequest);
 
-        if (useEdgePayment && upstream.status < 400) {
+        if (useEdgePayment && upstream.status < 400 && !settlement?.settled) {
           settlement = await settlePayment({
             payment,
+            idempotencyKey: settlementIdempotencyKey,
             facilitatorUrls,
             facilitatorApiKey,
             allowLocalFallback: allowLocalPaymentFallback,
           });
 
           if (!settlement.settled) {
-            const requirement = createPaymentRequirement({
-              tenant,
-              resourcePath: forwardedPath,
-              env,
-            });
-
             const response = paymentMissingResponse({
-              requirement,
+              requirement: paymentRequirement || createPaymentRequirement({
+                tenant,
+                resourcePath: forwardedPath,
+                env,
+              }),
               requestId,
               tenantId: dispatch.tenantId,
               reason: settlement.reason || "payment_settlement_failed",
@@ -1317,6 +1948,42 @@ export function createCloudflareDispatcherWorker(options = {}) {
           }
         }
 
+        if (
+          useEdgePayment
+          && settlement?.settled
+          && !settlement?.deduped
+          && settlementIdempotencyKey
+        ) {
+          try {
+            const settledAt = new Date().toISOString();
+
+            await persistSettlementState({
+              env,
+              memorySettlements,
+              tenant,
+              tenantId: dispatch.tenantId,
+              callerHash: callerId,
+              amountUsd: priceUsd,
+              idempotencyKey: settlementIdempotencyKey,
+              settlement,
+              requestId,
+              resourcePath: forwardedPath,
+              settledAt,
+            });
+
+            await incrementTenantSpendLimit({
+              env,
+              memoryBillingCounters,
+              tenantId: dispatch.tenantId,
+              spendLimit: tenant.spendLimit,
+              amountUsd: priceUsd,
+              nowMs: Date.now(),
+            });
+          } catch (error) {
+            settlement.persistenceError = error?.message || "settlement_state_write_failed";
+          }
+        }
+
         const extraHeaders = {
           "x-request-id": requestId,
           "x-tenant-id": dispatch.tenantId,
@@ -1325,9 +1992,16 @@ export function createCloudflareDispatcherWorker(options = {}) {
 
         if (settlement?.settled) {
           extraHeaders[PAYMENT_RESPONSE_HEADER] = JSON.stringify(settlement.receipt || {});
+          if (settlementIdempotencyKey) {
+            extraHeaders[PAYMENT_IDEMPOTENCY_HEADER] = settlementIdempotencyKey;
+          }
+          if (settlement?.deduped) {
+            extraHeaders[PAYMENT_DEDUPED_HEADER] = "true";
+          }
         }
 
         const response = await passthroughResponse(upstream, extraHeaders);
+        const countedBillingUsd = settlement?.settled && !settlement?.deduped ? priceUsd : 0;
 
         recordUsageEvent({
           timestamp: Date.now(),
@@ -1340,10 +2014,12 @@ export function createCloudflareDispatcherWorker(options = {}) {
           callerId,
           status: response.status,
           latencyMs: Date.now() - startedAt,
-          billedUsd: settlement?.settled ? priceUsd : 0,
+          billedUsd: countedBillingUsd,
           priceUsd,
-          lifecycle: settlement?.settled ? "payment_settled" : "served",
-          billable: Boolean(settlement?.settled) || priceUsd <= 0,
+          lifecycle: settlement?.settled
+            ? (settlement?.deduped ? "payment_replayed" : "payment_settled")
+            : "served",
+          billable: countedBillingUsd > 0 || priceUsd <= 0,
           countable: true,
         }, { env, ctx });
 

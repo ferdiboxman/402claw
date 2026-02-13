@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import http from "node:http";
 import {
   createCloudflareDispatcherWorker,
   parseTenantDirectory,
@@ -243,6 +244,334 @@ test("worker rejects paid flow when facilitator is missing and local fallback is
   assert.equal(paidResponse.status, 402);
   const body = await paidResponse.json();
   assert.equal(body.error, "facilitator_unconfigured");
+});
+
+test("worker dedupes settlement retries by idempotency key", async () => {
+  let settleCalls = 0;
+  const server = http.createServer(async (request, response) => {
+    const readBody = await new Promise((resolve, reject) => {
+      let raw = "";
+      request.on("data", (chunk) => {
+        raw += String(chunk);
+      });
+      request.on("end", () => {
+        if (!raw) {
+          resolve({});
+          return;
+        }
+        try {
+          resolve(JSON.parse(raw));
+        } catch (error) {
+          reject(error);
+        }
+      });
+      request.on("error", reject);
+    });
+
+    if (request.url === "/verify") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ ok: true, isValid: true, verificationId: "verify_1" }));
+      return;
+    }
+
+    if (request.url === "/settle") {
+      settleCalls += 1;
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        ok: true,
+        settled: true,
+        receipt: {
+          settlementId: "settle_1",
+          txHash: "0xabc123",
+          amount: readBody?.payment?.amount,
+        },
+      }));
+      return;
+    }
+
+    response.writeHead(404, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: false, error: "not_found" }));
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("facilitator test server failed to start");
+  }
+
+  const worker = createCloudflareDispatcherWorker({
+    tenantDirectory: {
+      bySlug: {
+        paid: {
+          tenantId: "tenant_paid",
+          workerName: "tenant-paid-worker",
+          slug: "paid",
+          plan: "pro",
+          priceUsd: 0.001,
+          x402Enabled: true,
+        },
+      },
+      byHost: {},
+    },
+  });
+
+  const env = {
+    FACILITATOR_URL: `http://${address.address}:${address.port}`,
+    DISPATCHER: {
+      get() {
+        return {
+          async fetch() {
+            return new Response(JSON.stringify({ ok: true }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          },
+        };
+      },
+    },
+  };
+
+  try {
+    const challengeResponse = await worker.fetch(
+      new Request("https://api.402claw.dev/t/paid/v1/data"),
+      env,
+    );
+    const challenge = JSON.parse(challengeResponse.headers.get("payment-required"));
+    const requirement = challenge.accepts[0];
+    const payment = {
+      paymentId: "payment_retry_1",
+      scheme: requirement.scheme,
+      network: requirement.network,
+      resource: requirement.resource,
+      payTo: requirement.payTo,
+      amount: requirement.maxAmountRequired,
+      payer: "0x1111111111111111111111111111111111111111",
+      timestamp: Date.now(),
+      signature: "sig_retry_test",
+    };
+    const encoded = Buffer.from(JSON.stringify(payment), "utf8").toString("base64url");
+
+    const first = await worker.fetch(
+      new Request("https://api.402claw.dev/t/paid/v1/data", {
+        headers: { "payment-signature": encoded },
+      }),
+      env,
+    );
+    const second = await worker.fetch(
+      new Request("https://api.402claw.dev/t/paid/v1/data", {
+        headers: { "payment-signature": encoded },
+      }),
+      env,
+    );
+
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+    assert.equal(settleCalls, 1);
+    assert.equal(second.headers.get("x-payment-deduped"), "true");
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
+  }
+});
+
+test("worker blocks paid calls when tenant spend cap is exceeded", async () => {
+  let upstreamCalls = 0;
+  const worker = createCloudflareDispatcherWorker({
+    tenantDirectory: {
+      bySlug: {
+        capped: {
+          tenantId: "tenant_capped",
+          workerName: "tenant-capped-worker",
+          slug: "capped",
+          plan: "pro",
+          priceUsd: 0.001,
+          x402Enabled: true,
+          spendLimit: {
+            dailySpendUsd: 0.001,
+          },
+        },
+      },
+      byHost: {},
+    },
+  });
+
+  const env = {
+    ALLOW_LOCAL_X402_VERIFICATION: "true",
+    DISPATCHER: {
+      get() {
+        return {
+          async fetch() {
+            upstreamCalls += 1;
+            return new Response(JSON.stringify({ ok: true }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          },
+        };
+      },
+    },
+  };
+
+  const challengeResponse = await worker.fetch(
+    new Request("https://api.402claw.dev/t/capped/v1/data"),
+    env,
+  );
+  const challenge = JSON.parse(challengeResponse.headers.get("payment-required"));
+  const requirement = challenge.accepts[0];
+
+  const paymentOne = {
+    paymentId: "payment_cap_1",
+    scheme: requirement.scheme,
+    network: requirement.network,
+    resource: requirement.resource,
+    payTo: requirement.payTo,
+    amount: requirement.maxAmountRequired,
+    payer: "0x1111111111111111111111111111111111111111",
+    timestamp: Date.now(),
+    signature: "sig_cap_one",
+  };
+  const paymentTwo = {
+    ...paymentOne,
+    paymentId: "payment_cap_2",
+    signature: "sig_cap_two",
+    timestamp: Date.now() + 1,
+  };
+
+  const first = await worker.fetch(
+    new Request("https://api.402claw.dev/t/capped/v1/data", {
+      headers: {
+        "payment-signature": Buffer.from(JSON.stringify(paymentOne), "utf8").toString("base64url"),
+      },
+    }),
+    env,
+  );
+  const second = await worker.fetch(
+    new Request("https://api.402claw.dev/t/capped/v1/data", {
+      headers: {
+        "payment-signature": Buffer.from(JSON.stringify(paymentTwo), "utf8").toString("base64url"),
+      },
+    }),
+    env,
+  );
+
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 402);
+  assert.equal(upstreamCalls, 1);
+  assert.equal(second.headers.get("x-spend-window"), "day");
+
+  const secondBody = await second.json();
+  assert.equal(secondBody.error, "cap_exceeded");
+  assert.equal(secondBody.window, "day");
+});
+
+test("worker writes settlement ledger and audit trail to CONTROL_DB", async () => {
+  const dbCalls = [];
+  const controlDb = {
+    prepare(sql) {
+      return {
+        bind(...params) {
+          return {
+            async run() {
+              dbCalls.push({ sql, params, kind: "run" });
+              if (/insert\s+or\s+ignore\s+into\s+ledger/i.test(sql)) {
+                return { success: true, meta: { changes: 1 } };
+              }
+              return { success: true, meta: { changes: 1 } };
+            },
+            async first() {
+              dbCalls.push({ sql, params, kind: "first" });
+              return null;
+            },
+          };
+        },
+      };
+    },
+  };
+
+  const worker = createCloudflareDispatcherWorker({
+    tenantDirectory: {
+      bySlug: {
+        paid: {
+          tenantId: "tenant_paid",
+          workerName: "tenant-paid-worker",
+          slug: "paid",
+          plan: "pro",
+          ownerUserId: "alice",
+          priceUsd: 0.001,
+          x402Enabled: true,
+        },
+      },
+      byHost: {},
+    },
+  });
+
+  const env = {
+    ALLOW_LOCAL_X402_VERIFICATION: "true",
+    CONTROL_DB: controlDb,
+    DISPATCHER: {
+      get() {
+        return {
+          async fetch() {
+            return new Response(JSON.stringify({ ok: true }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          },
+        };
+      },
+    },
+  };
+
+  const challengeResponse = await worker.fetch(
+    new Request("https://api.402claw.dev/t/paid/v1/data"),
+    env,
+  );
+  const challenge = JSON.parse(challengeResponse.headers.get("payment-required"));
+  const requirement = challenge.accepts[0];
+  const payment = {
+    paymentId: "payment_audit_1",
+    scheme: requirement.scheme,
+    network: requirement.network,
+    resource: requirement.resource,
+    payTo: requirement.payTo,
+    amount: requirement.maxAmountRequired,
+    payer: "0x1111111111111111111111111111111111111111",
+    timestamp: Date.now(),
+    signature: "sig_local_audit",
+  };
+
+  const paidResponse = await worker.fetch(
+    new Request("https://api.402claw.dev/t/paid/v1/data", {
+      headers: { "payment-signature": Buffer.from(JSON.stringify(payment), "utf8").toString("base64url") },
+    }),
+    env,
+  );
+
+  assert.equal(paidResponse.status, 200);
+  assert.ok(paidResponse.headers.get("x-payment-idempotency-key"));
+
+  const ledgerWrite = dbCalls.find(
+    (entry) => entry.kind === "run" && /insert\s+or\s+ignore\s+into\s+ledger/i.test(entry.sql),
+  );
+  assert.ok(ledgerWrite);
+  const ledgerMetadata = JSON.parse(ledgerWrite.params[4]);
+  assert.equal(ledgerMetadata.amountUsd, 0.001);
+  assert.equal(ledgerMetadata.tenantId, "tenant_paid");
+  assert.ok(ledgerMetadata.idempotencyKey);
+  assert.ok(ledgerMetadata.callerHash);
+
+  const auditWrite = dbCalls.find(
+    (entry) => entry.kind === "run" && /insert\s+into\s+audit_log/i.test(entry.sql),
+  );
+  assert.ok(auditWrite);
+  const auditMetadata = JSON.parse(auditWrite.params[3]);
+  assert.equal(auditMetadata.amountUsd, 0.001);
+  assert.equal(auditMetadata.tenant, "tenant_paid");
+  assert.ok(auditMetadata.idempotencyKey);
 });
 
 test("worker exposes platform analytics from tracked usage events", async () => {

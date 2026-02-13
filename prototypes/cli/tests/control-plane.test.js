@@ -3,18 +3,23 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Wallet } from "ethers";
 import {
   appendAuditEvent,
   authenticateApiKey,
+  createWalletVerificationChallenge,
   createApiKeyForUser,
   getTenantBalance,
   isAuthConfigured,
   listApiKeys,
   listAuditEvents,
   listUsers,
+  processPendingWithdrawals,
   requestWithdrawal,
   recordTenantRevenue,
+  rotateApiKey,
   revokeApiKey,
+  verifyWalletVerificationChallenge,
 } from "../src/control-plane.js";
 
 function makeTempControlPlanePath() {
@@ -120,7 +125,14 @@ test("control plane tracks revenue and applies 5 percent withdrawal fee", () => 
   assert.equal(withdrawal.requestedUsd, 20);
   assert.equal(withdrawal.platformFeeUsd, 1);
   assert.equal(withdrawal.netPayoutUsd, 19);
-  assert.equal(withdrawal.status, "completed_simulated");
+  assert.equal(withdrawal.status, "pending");
+
+  const batch = processPendingWithdrawals({
+    controlPlanePath,
+    limit: 10,
+  });
+  assert.equal(batch.completed, 1);
+  assert.equal(batch.failedInsufficientBalance, 0);
 
   const after = getTenantBalance({
     controlPlanePath,
@@ -156,3 +168,82 @@ test("revoked api key can no longer authenticate", () => {
   );
 });
 
+test("api key rotation revokes old key and returns replacement key", () => {
+  const controlPlanePath = makeTempControlPlanePath();
+  const created = createApiKeyForUser({
+    controlPlanePath,
+    userId: "alice",
+    scopes: ["deploy"],
+  });
+  const [firstKey] = listApiKeys(controlPlanePath);
+
+  const rotated = rotateApiKey({
+    controlPlanePath,
+    keyId: firstKey.keyId,
+  });
+
+  assert.equal(rotated.previous.keyId, firstKey.keyId);
+  assert.ok(rotated.previous.revokedAt);
+  assert.ok(rotated.replacement.apiKey.startsWith("claw_"));
+  assert.notEqual(rotated.replacement.keyRecord.keyId, firstKey.keyId);
+
+  assert.throws(
+    () => authenticateApiKey({
+      controlPlanePath,
+      apiKey: created.apiKey,
+      requiredScope: "deploy",
+    }),
+    /invalid_api_key/,
+  );
+
+  const auth = authenticateApiKey({
+    controlPlanePath,
+    apiKey: rotated.replacement.apiKey,
+    requiredScope: "deploy",
+  });
+  assert.equal(auth.user.userId, "alice");
+});
+
+test("wallet challenge verifies signed ownership and links wallet to user", async () => {
+  const controlPlanePath = makeTempControlPlanePath();
+  const wallet = Wallet.createRandom();
+
+  const challenge = createWalletVerificationChallenge({
+    controlPlanePath,
+    userId: "alice",
+    walletAddress: wallet.address,
+    ttlMinutes: 10,
+  });
+
+  assert.equal(challenge.userId, "alice");
+  assert.equal(challenge.walletAddress, wallet.address);
+  assert.ok(challenge.message.includes(challenge.challengeId));
+
+  const signature = await wallet.signMessage(challenge.message);
+  const linked = verifyWalletVerificationChallenge({
+    controlPlanePath,
+    userId: "alice",
+    walletAddress: wallet.address,
+    challengeId: challenge.challengeId,
+    signature,
+  });
+
+  assert.equal(linked.userId, "alice");
+  assert.equal(linked.walletAddress, wallet.address);
+  assert.ok(linked.walletVerifiedAt);
+
+  assert.throws(
+    () => verifyWalletVerificationChallenge({
+      controlPlanePath,
+      userId: "alice",
+      walletAddress: wallet.address,
+      challengeId: challenge.challengeId,
+      signature,
+    }),
+    /wallet_challenge_not_found/,
+  );
+
+  const [alice] = listUsers(controlPlanePath).filter((item) => item.userId === "alice");
+  assert.equal(alice.walletAddress, wallet.address);
+  assert.ok(alice.walletVerifiedAt);
+});

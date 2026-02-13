@@ -45,6 +45,17 @@ test("json storage adapter round-trips registry and control-plane", () => {
     ledger: [],
     withdrawals: [],
     auditEvents: [],
+    walletChallenges: [
+      {
+        challengeId: "wallet_challenge_1",
+        userId: "alice",
+        walletAddress: "0x1111111111111111111111111111111111111111",
+        nonce: "abc",
+        message: "sign me",
+        issuedAt: "2026-02-13T00:00:00.000Z",
+        expiresAt: "2026-02-13T00:10:00.000Z",
+      },
+    ],
   };
 
   storage.saveRegistry({ registryPath, registry });
@@ -56,6 +67,7 @@ test("json storage adapter round-trips registry and control-plane", () => {
   assert.equal(loadedRegistry.tenants[0].slug, "acme");
   assert.equal(loadedControlPlane.users.length, 1);
   assert.equal(loadedControlPlane.users[0].userId, "alice");
+  assert.equal(loadedControlPlane.walletChallenges.length, 1);
 });
 
 test("d1 storage adapter round-trips registry and control-plane", () => {
@@ -143,6 +155,18 @@ test("d1 storage adapter round-trips registry and control-plane", () => {
             metadata: { command: "deploy" },
           },
         ],
+        walletChallenges: [
+          {
+            challengeId: "wallet_challenge_1",
+            userId: "alice",
+            walletAddress: "0x1111111111111111111111111111111111111111",
+            nonce: "abc",
+            message: "sign me",
+            issuedAt: "2026-02-13T00:00:00.000Z",
+            expiresAt: "2026-02-13T00:10:00.000Z",
+            usedAt: null,
+          },
+        ],
       },
     });
 
@@ -158,6 +182,7 @@ test("d1 storage adapter round-trips registry and control-plane", () => {
     assert.equal(loadedControlPlane.ledger.length, 1);
     assert.equal(loadedControlPlane.withdrawals.length, 1);
     assert.equal(loadedControlPlane.auditEvents.length, 1);
+    assert.equal(loadedControlPlane.walletChallenges.length, 1);
   } finally {
     if (typeof storage.close === "function") {
       storage.close();

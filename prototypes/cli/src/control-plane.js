@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { getAddress, verifyMessage } from "ethers";
 
 const WITHDRAWAL_FEE_RATE = 0.05;
+const DEFAULT_WALLET_CHALLENGE_TTL_MINUTES = 15;
 
 function roundUsd(value) {
   const parsed = Number(value);
@@ -28,6 +30,10 @@ function uid(prefix) {
   return `${prefix}_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
 }
 
+function randomHex(bytes = 6) {
+  return crypto.randomBytes(bytes).toString("hex");
+}
+
 function hashApiKey(apiKey) {
   return crypto.createHash("sha256").update(String(apiKey || ""), "utf8").digest("hex");
 }
@@ -51,6 +57,68 @@ function normalizeUserId(input) {
   }
 
   return value;
+}
+
+function walletNonce(size = 12) {
+  return crypto.randomBytes(size).toString("hex");
+}
+
+function normalizeWalletAddress(input) {
+  const value = String(input || "").trim();
+  if (!value) {
+    throw new Error("walletAddress is required");
+  }
+
+  try {
+    return getAddress(value);
+  } catch {
+    throw new Error("walletAddress must be a valid EVM address");
+  }
+}
+
+function parseTtlMinutes(value) {
+  if (value === undefined || value === null || value === "") {
+    return DEFAULT_WALLET_CHALLENGE_TTL_MINUTES;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error("ttlMinutes must be a positive number");
+  }
+  return Math.floor(parsed);
+}
+
+function buildWalletLinkMessage({
+  userId,
+  walletAddress,
+  challengeId,
+  nonce,
+  issuedAt,
+  expiresAt,
+} = {}) {
+  return [
+    "402claw Wallet Verification",
+    `User: ${userId}`,
+    `Wallet: ${walletAddress}`,
+    `Challenge: ${challengeId}`,
+    `Nonce: ${nonce}`,
+    `Issued At: ${issuedAt}`,
+    `Expires At: ${expiresAt}`,
+    "Purpose: Link wallet for creator withdrawals.",
+  ].join("\n");
+}
+
+function nowMs() {
+  return Date.now();
+}
+
+function pruneWalletChallenges(state, now = nowMs()) {
+  state.walletChallenges = (state.walletChallenges || []).filter((challenge) => {
+    if (!challenge || typeof challenge !== "object") return false;
+    if (challenge.usedAt) return false;
+    const expiresAt = Date.parse(String(challenge.expiresAt || ""));
+    if (!Number.isFinite(expiresAt)) return false;
+    return expiresAt > now;
+  });
 }
 
 function normalizeScopeList(scopes) {
@@ -143,6 +211,7 @@ export function loadControlPlane(controlPlanePath, options = {}) {
       ledger: [],
       withdrawals: [],
       auditEvents: [],
+      walletChallenges: [],
     };
   }
 
@@ -161,6 +230,7 @@ export function loadControlPlane(controlPlanePath, options = {}) {
     ledger: Array.isArray(parsed.ledger) ? parsed.ledger : [],
     withdrawals: Array.isArray(parsed.withdrawals) ? parsed.withdrawals : [],
     auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents : [],
+    walletChallenges: Array.isArray(parsed.walletChallenges) ? parsed.walletChallenges : [],
   };
 }
 
@@ -180,6 +250,7 @@ export function saveControlPlane(controlPlanePath, state, options = {}) {
     ledger: Array.isArray(state.ledger) ? state.ledger : [],
     withdrawals: Array.isArray(state.withdrawals) ? state.withdrawals : [],
     auditEvents: Array.isArray(state.auditEvents) ? state.auditEvents : [],
+    walletChallenges: Array.isArray(state.walletChallenges) ? state.walletChallenges : [],
   };
 
   fs.writeFileSync(absolute, `${JSON.stringify(next, null, 2)}\n`, "utf8");
@@ -200,6 +271,8 @@ export function ensureUser({
     user = {
       userId: normalizedUserId,
       displayName: String(displayName || normalizedUserId),
+      walletAddress: null,
+      walletVerifiedAt: null,
       status: "active",
       createdAt: nowIso(),
       updatedAt: nowIso(),
@@ -274,6 +347,62 @@ export function revokeApiKey({
   };
 }
 
+export function rotateApiKey({
+  controlPlanePath = defaultControlPlanePath(),
+  keyId,
+  scopes,
+  storage,
+} = {}) {
+  assertNonEmpty(keyId, "keyId");
+  const state = loadControlPlane(controlPlanePath, { storage });
+  const existing = state.apiKeys.find((item) => item.keyId === keyId);
+  if (!existing) {
+    throw new Error(`api key not found: ${keyId}`);
+  }
+  if (existing.revokedAt) {
+    throw new Error(`api key already revoked: ${keyId}`);
+  }
+
+  const apiKey = `claw_${crypto.randomBytes(18).toString("base64url")}`;
+  const now = nowIso();
+  const nextRecord = {
+    keyId: uid("key"),
+    userId: existing.userId,
+    keyHash: hashApiKey(apiKey),
+    keyHint: redactApiKey(apiKey),
+    scopes: normalizeScopeList(
+      scopes === undefined || scopes === null
+        ? existing.scopes
+        : scopes,
+    ),
+    createdAt: now,
+    lastUsedAt: null,
+    revokedAt: null,
+  };
+
+  existing.revokedAt = now;
+  state.apiKeys.push(nextRecord);
+  saveControlPlane(controlPlanePath, state, { storage });
+
+  return {
+    previous: {
+      keyId: existing.keyId,
+      userId: existing.userId,
+      revokedAt: existing.revokedAt,
+    },
+    replacement: {
+      apiKey,
+      keyRecord: {
+        keyId: nextRecord.keyId,
+        userId: nextRecord.userId,
+        keyHint: nextRecord.keyHint,
+        scopes: nextRecord.scopes,
+        createdAt: nextRecord.createdAt,
+      },
+    },
+  };
+}
+
 function activeApiKeys(state) {
   return (state.apiKeys || []).filter((key) => !key.revokedAt);
 }
@@ -337,6 +466,119 @@ export function listApiKeys(controlPlanePath = defaultControlPlanePath(), option
     lastUsedAt: key.lastUsedAt,
     revokedAt: key.revokedAt,
   }));
+}
+
+export function createWalletVerificationChallenge({
+  controlPlanePath = defaultControlPlanePath(),
+  userId,
+  walletAddress,
+  ttlMinutes = DEFAULT_WALLET_CHALLENGE_TTL_MINUTES,
+  storage,
+} = {}) {
+  const user = ensureUser({ controlPlanePath, userId, storage });
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  const ttl = parseTtlMinutes(ttlMinutes);
+  const state = loadControlPlane(controlPlanePath, { storage });
+  const now = nowMs();
+
+  pruneWalletChallenges(state, now);
+
+  const challengeId = uid("wallet_challenge");
+  const nonce = walletNonce(12);
+  const issuedAt = new Date(now).toISOString();
+  const expiresAt = new Date(now + (ttl * 60 * 1000)).toISOString();
+  const message = buildWalletLinkMessage({
+    userId: user.userId,
+    walletAddress: normalizedWallet,
+    challengeId,
+    nonce,
+    issuedAt,
+    expiresAt,
+  });
+
+  const challenge = {
+    challengeId,
+    userId: user.userId,
+    walletAddress: normalizedWallet,
+    nonce,
+    message,
+    issuedAt,
+    expiresAt,
+    usedAt: null,
+  };
+
+  state.walletChallenges.push(challenge);
+  saveControlPlane(controlPlanePath, state, { storage });
+
+  return challenge;
+}
+
+export function verifyWalletVerificationChallenge({
+  controlPlanePath = defaultControlPlanePath(),
+  userId,
+  walletAddress,
+  challengeId,
+  signature,
+  storage,
+} = {}) {
+  const normalizedUserId = normalizeUserId(userId);
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  assertNonEmpty(challengeId, "challengeId");
+  assertNonEmpty(signature, "signature");
+
+  const state = loadControlPlane(controlPlanePath, { storage });
+  const now = nowMs();
+  pruneWalletChallenges(state, now);
+
+  const challenge = state.walletChallenges.find((item) => {
+    if (!item || typeof item !== "object") return false;
+    return (
+      item.challengeId === String(challengeId)
+      && item.userId === normalizedUserId
+      && item.walletAddress === normalizedWallet
+      && !item.usedAt
+    );
+  });
+
+  if (!challenge) {
+    throw new Error("wallet_challenge_not_found");
+  }
+
+  const expiresAtMs = Date.parse(challenge.expiresAt);
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now) {
+    throw new Error("wallet_challenge_expired");
+  }
+
+  let recoveredAddress = "";
+  try {
+    recoveredAddress = getAddress(verifyMessage(challenge.message, String(signature)));
+  } catch {
+    throw new Error("wallet_signature_invalid");
+  }
+
+  if (recoveredAddress !== normalizedWallet) {
+    throw new Error("wallet_signature_mismatch");
+  }
+
+  const user = state.users.find((item) => item.userId === normalizedUserId);
+  if (!user) {
+    throw new Error("wallet_user_not_found");
+  }
+
+  const linkedAt = nowIso();
+  user.walletAddress = normalizedWallet;
+  user.walletVerifiedAt = linkedAt;
+  user.updatedAt = linkedAt;
+
+  challenge.usedAt = linkedAt;
+  saveControlPlane(controlPlanePath, state, { storage });
+
+  return {
+    userId: user.userId,
+    walletAddress: normalizedWallet,
+    walletVerifiedAt: linkedAt,
+    challengeId: challenge.challengeId,
+  };
 }
 
 export function appendAuditEvent({
@@ -418,6 +660,16 @@ export function recordTenantRevenue({
   return entry;
 }
 
+function pendingWithdrawalReservedUsd(withdrawals, tenantSlug) {
+  let total = 0;
+  for (const withdrawal of withdrawals || []) {
+    if (!withdrawal || withdrawal.tenantSlug !== tenantSlug) continue;
+    if (withdrawal.status !== "pending") continue;
+    total += roundUsd(withdrawal.requestedUsd);
+  }
+  return roundUsd(total);
+}
+
 export function requestWithdrawal({
   controlPlanePath = defaultControlPlanePath(),
   tenantSlug,
@@ -450,43 +702,131 @@ export function requestWithdrawal({
     throw new Error("tenant_owner_mismatch");
   }
 
-  if (balance.availableUsd < requestedUsd) {
+  const pendingReservedUsd = pendingWithdrawalReservedUsd(state.withdrawals, tenantSlug);
+  const spendableUsd = roundUsd(balance.availableUsd - pendingReservedUsd);
+
+  if (spendableUsd < requestedUsd) {
     throw new Error("insufficient_balance");
   }
 
   const platformFeeUsd = roundUsd(requestedUsd * WITHDRAWAL_FEE_RATE);
   const netPayoutUsd = roundUsd(requestedUsd - platformFeeUsd);
 
-  const ledgerEntry = {
-    ledgerId: uid("wdl"),
-    type: "withdrawal",
-    createdAt: nowIso(),
-    tenantSlug: String(tenantSlug),
-    ownerUserId: String(ownerUserId),
-    requestedUsd,
-    platformFeeUsd,
-    netPayoutUsd,
-    destination: String(destination),
-  };
-
   const withdrawal = {
     withdrawalId: uid("withdrawal"),
     createdAt: nowIso(),
-    status: "completed_simulated",
+    status: "pending",
     tenantSlug: String(tenantSlug),
     ownerUserId: String(ownerUserId),
     destination: String(destination),
     requestedUsd,
     platformFeeUsd,
     netPayoutUsd,
-    ledgerId: ledgerEntry.ledgerId,
+    ledgerId: null,
+    processedAt: null,
+    payoutReference: null,
   };
 
-  state.ledger.push(ledgerEntry);
   state.withdrawals.push(withdrawal);
   saveControlPlane(controlPlanePath, state, { storage });
 
   return withdrawal;
+}
+
+export function processPendingWithdrawals({
+  controlPlanePath = defaultControlPlanePath(),
+  limit = 100,
+  payoutReferencePrefix = "sim_payout",
+  dryRun = false,
+  storage,
+} = {}) {
+  const state = loadControlPlane(controlPlanePath, { storage });
+  const max = Math.max(1, Math.floor(Number(limit || 100)));
+  const pending = (state.withdrawals || [])
+    .filter((item) => item?.status === "pending")
+    .slice(0, max);
+
+  const balances = computeBalancesFromLedger(state.ledger);
+  const summary = {
+    totalPending: pending.length,
+    processed: 0,
+    completed: 0,
+    failedInsufficientBalance: 0,
+    dryRun: Boolean(dryRun),
+    withdrawals: [],
+  };
+
+  for (const withdrawal of pending) {
+    const tenantSlug = String(withdrawal.tenantSlug);
+    const current = balances[tenantSlug] || {
+      tenantSlug,
+      ownerUserId: withdrawal.ownerUserId,
+      availableUsd: 0,
+      lifetimeGrossUsd: 0,
+      lifetimeWithdrawnUsd: 0,
+      lifetimeWithdrawalFeesUsd: 0,
+    };
+    const requestedUsd = roundUsd(withdrawal.requestedUsd);
+
+    summary.processed += 1;
+
+    if (current.availableUsd < requestedUsd) {
+      summary.failedInsufficientBalance += 1;
+      summary.withdrawals.push({
+        withdrawalId: withdrawal.withdrawalId,
+        tenantSlug,
+        status: "failed_insufficient_balance",
+        requestedUsd,
+        availableUsd: current.availableUsd,
+      });
+      continue;
+    }
+
+    const processedAt = nowIso();
+    const ledgerId = uid("wdl");
+    const payoutReference = `${String(payoutReferencePrefix || "sim_payout").trim() || "sim_payout"}_${randomHex(6)}`;
+    const ledgerEntry = {
+      ledgerId,
+      type: "withdrawal",
+      createdAt: processedAt,
+      tenantSlug,
+      ownerUserId: withdrawal.ownerUserId,
+      requestedUsd,
+      platformFeeUsd: roundUsd(withdrawal.platformFeeUsd),
+      netPayoutUsd: roundUsd(withdrawal.netPayoutUsd),
+      destination: String(withdrawal.destination),
+      withdrawalId: withdrawal.withdrawalId,
+      payoutReference,
+    };
+
+    if (!dryRun) {
+      state.ledger.push(ledgerEntry);
+      withdrawal.status = "completed_simulated";
+      withdrawal.ledgerId = ledgerId;
+      withdrawal.processedAt = processedAt;
+      withdrawal.payoutReference = payoutReference;
+    }
+
+    current.availableUsd = roundUsd(current.availableUsd - requestedUsd);
+    balances[tenantSlug] = current;
+
+    summary.completed += 1;
+    summary.withdrawals.push({
+      withdrawalId: withdrawal.withdrawalId,
+      tenantSlug,
+      status: dryRun ? "would_complete_simulated" : "completed_simulated",
+      requestedUsd,
+      ledgerId,
+      payoutReference,
+      processedAt,
+    });
+  }
+
+  if (!dryRun) {
+    saveControlPlane(controlPlanePath, state, { storage });
+  }
+
+  return summary;
 }
 
 export function getTenantBalance({

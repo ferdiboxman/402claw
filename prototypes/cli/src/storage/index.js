@@ -72,6 +72,7 @@ function defaultControlPlaneState() {
     ledger: [],
     withdrawals: [],
     auditEvents: [],
+    walletChallenges: [],
   };
 }
 
@@ -117,6 +118,7 @@ function makeJsonStorage() {
         ledger: Array.isArray(parsed.ledger) ? parsed.ledger : [],
         withdrawals: Array.isArray(parsed.withdrawals) ? parsed.withdrawals : [],
         auditEvents: Array.isArray(parsed.auditEvents) ? parsed.auditEvents : [],
+        walletChallenges: Array.isArray(parsed.walletChallenges) ? parsed.walletChallenges : [],
       };
     },
     saveControlPlane({ controlPlanePath, state } = {}) {
@@ -129,6 +131,7 @@ function makeJsonStorage() {
         ledger: Array.isArray(state?.ledger) ? state.ledger : [],
         withdrawals: Array.isArray(state?.withdrawals) ? state.withdrawals : [],
         auditEvents: Array.isArray(state?.auditEvents) ? state.auditEvents : [],
+        walletChallenges: Array.isArray(state?.walletChallenges) ? state.walletChallenges : [],
       };
       return writeJsonFile(controlPlanePath, next);
     },
@@ -350,6 +353,7 @@ function makeD1Storage({
       const meta = getDocument("control_plane_meta", { version: 1, updatedAt: null });
       const apiKeyMeta = getDocument("api_key_meta", {});
       const withdrawals = getDocument("withdrawals", []);
+      const walletChallenges = getDocument("wallet_challenges", []);
 
       const users = db.prepare("SELECT * FROM users ORDER BY rowid ASC").all().map((row) => {
         const full = parseJson(row.metadata, null);
@@ -413,6 +417,7 @@ function makeD1Storage({
         ledger,
         withdrawals: Array.isArray(withdrawals) ? withdrawals : [],
         auditEvents,
+        walletChallenges: Array.isArray(walletChallenges) ? walletChallenges : [],
       };
     },
     saveControlPlane({ state } = {}) {
@@ -424,6 +429,7 @@ function makeD1Storage({
         ledger: Array.isArray(state?.ledger) ? state.ledger : [],
         withdrawals: Array.isArray(state?.withdrawals) ? state.withdrawals : [],
         auditEvents: Array.isArray(state?.auditEvents) ? state.auditEvents : [],
+        walletChallenges: Array.isArray(state?.walletChallenges) ? state.walletChallenges : [],
       };
 
       withTransaction(db, () => {
@@ -536,6 +542,7 @@ function makeD1Storage({
 
         putDocument("api_key_meta", apiKeyMeta);
         putDocument("withdrawals", nextState.withdrawals);
+        putDocument("wallet_challenges", nextState.walletChallenges);
         putDocument("control_plane_meta", {
           version: nextState.version,
           updatedAt: nextState.updatedAt,

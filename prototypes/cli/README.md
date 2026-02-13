@@ -18,6 +18,8 @@ node src/index.js deploy ../x402-server/data/sample.csv \
   --subrequests 40 \
   --quota-day 10000 \
   --quota-month 200000 \
+  --spend-day 25 \
+  --spend-month 500 \
   --x402 true
 
 # Deploy + publish tenant worker to a dispatch namespace in one command
@@ -95,6 +97,16 @@ node src/index.js wrap https://api.example.com/v1 \
 # Bootstrap auth (only needed once, before any keys exist)
 node src/index.js user-create --user alice --name "Alice"
 node src/index.js auth-create-key --user alice --scope deploy --scope withdraw
+node src/index.js auth-rotate-key --key-id <old-key-id> --scope deploy --scope withdraw
+
+# Wallet ownership verification (challenge -> sign -> verify)
+node src/index.js wallet-challenge --user alice --wallet 0xabc123...
+# Sign returned challenge.message with wallet, then:
+node src/index.js wallet-verify \
+  --user alice \
+  --wallet 0xabc123... \
+  --challenge-id <challenge-id> \
+  --signature <signed-message-hex>
 
 # Any command requiring auth can now use --api-key
 node src/index.js deploy ../x402-server/data/sample.csv \
@@ -108,6 +120,7 @@ node src/index.js deploy ../x402-server/data/sample.csv \
 node src/index.js revenue-credit --tenant acme --amount 12.40 --source settled_request --api-key <alice-api-key>
 node src/index.js balance --tenant acme
 node src/index.js withdraw --tenant acme --amount 5 --to 0xabc123 --api-key <alice-api-key>
+node src/index.js withdraw-batch --limit 50 --api-key <alice-api-key>
 
 # Audit log
 node src/index.js audit-list --limit 25
@@ -133,13 +146,19 @@ Registry is stored at `.402claw/tenants.json` by default and contains:
 - optional tenant dispatch limits (`cpuMs`, `subRequests`)
 - optional edge-payment toggle (`x402Enabled`)
 - optional usage quotas (`usageLimit.dailyRequests`, `usageLimit.monthlyRequests`)
+- optional spend caps (`spendLimit.dailySpendUsd`, `spendLimit.monthlySpendUsd`)
 
 ## Control plane format
 Persistent multi-user control plane is stored at `.402claw/control-plane.json` by default and contains:
 - users
 - hashed API keys and scopes
+- wallet verification challenges + linked wallet addresses
 - payout ledger + withdrawals
 - append-only audit events
+
+Withdrawal lifecycle:
+- `withdraw` creates a `pending` request after balance checks.
+- `withdraw-batch` processes pending requests into simulated completed payouts.
 
 If at least one active API key exists, mutating commands require `--api-key` (or `CLAW_API_KEY`).
 

@@ -26,6 +26,12 @@ outbound = { service = "YOUR_OUTBOUND_WORKER" }
 # binding = "USAGE_KV"
 # id = "YOUR_USAGE_KV_ID"
 
+# Optional persistent billing state (idempotency + spend caps)
+# If omitted, RATE_KV is used as fallback when present.
+# [[kv_namespaces]]
+# binding = "BILLING_KV"
+# id = "YOUR_BILLING_KV_ID"
+
 # Optional D1 binding for production control-plane storage
 # Create once:
 #   npx wrangler d1 create clawr-prod

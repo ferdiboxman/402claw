@@ -35,6 +35,11 @@ codex-research/
 - `findings/usage-limits-and-secret-publish-hardening-2026-02-13.md`
 - `findings/phase-1-task-1-1-d1-database-setup-2026-02-13.md`
 - `findings/phase-1-task-1-2-storage-abstraction-and-migration-2026-02-13.md`
+- `findings/phase-1-task-1-3-d1-integration-tests-2026-02-13.md`
+- `findings/phase-2-billing-hardening-idempotency-spend-caps-audit-2026-02-13.md`
+- `findings/phase-3-task-3-1-wallet-verification-2026-02-13.md`
+- `findings/phase-3-task-3-2-withdraw-batch-flow-2026-02-13.md`
+- `findings/phase-3-task-3-3-api-key-rotation-2026-02-13.md`
 - `prototypes/x402-csv-api-poc/`
 
 ## Prototype Quick Run

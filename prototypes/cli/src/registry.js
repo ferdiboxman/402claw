@@ -27,6 +27,12 @@ function toPositiveInt(value, fallback = undefined) {
   return Math.floor(parsed);
 }
 
+function toPositiveNumber(value, fallback = undefined) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
 function cloneJsonValue(value, fallback = undefined) {
   if (value === undefined || value === null) return fallback;
   return JSON.parse(JSON.stringify(value));
@@ -171,6 +177,48 @@ function normalizeUsageLimit(value, fallback) {
   } else {
     const fallbackMonthly = toPositiveInt(fallback?.monthlyRequests, undefined);
     if (fallbackMonthly) output.monthlyRequests = fallbackMonthly;
+  }
+
+  if (Object.keys(output).length === 0) {
+    return hasFallback ? cloneJsonValue(fallback) : undefined;
+  }
+
+  return output;
+}
+
+function normalizeSpendLimit(value, fallback) {
+  const hasFallback = Boolean(fallback && typeof fallback === "object");
+  if (value === undefined || value === null || value === false) {
+    return hasFallback ? cloneJsonValue(fallback) : undefined;
+  }
+
+  if (typeof value !== "object") {
+    throw new Error("spendLimit must be an object");
+  }
+
+  const output = {};
+  const source = value;
+
+  const dailySpendUsd = toPositiveNumber(
+    source.dailySpendUsd ?? source.dailyUsd ?? source.dayUsd ?? source.daily,
+    undefined,
+  );
+  if (dailySpendUsd) {
+    output.dailySpendUsd = dailySpendUsd;
+  } else {
+    const fallbackDaily = toPositiveNumber(fallback?.dailySpendUsd, undefined);
+    if (fallbackDaily) output.dailySpendUsd = fallbackDaily;
+  }
+
+  const monthlySpendUsd = toPositiveNumber(
+    source.monthlySpendUsd ?? source.monthlyUsd ?? source.monthUsd ?? source.monthly,
+    undefined,
+  );
+  if (monthlySpendUsd) {
+    output.monthlySpendUsd = monthlySpendUsd;
+  } else {
+    const fallbackMonthly = toPositiveNumber(fallback?.monthlySpendUsd, undefined);
+    if (fallbackMonthly) output.monthlySpendUsd = fallbackMonthly;
   }
 
   if (Object.keys(output).length === 0) {
@@ -479,6 +527,7 @@ export function upsertDeployment({
   proxy,
   rateLimit,
   usageLimit,
+  spendLimit,
   tenant,
   ownerUserId,
   plan = "free",
@@ -595,6 +644,11 @@ export function upsertDeployment({
     entry.usageLimit = normalizedUsageLimit;
   }
 
+  const normalizedSpendLimit = normalizeSpendLimit(spendLimit, existing?.spendLimit);
+  if (normalizedSpendLimit) {
+    entry.spendLimit = normalizedSpendLimit;
+  }
+
   if (foundIndex >= 0) {
     registry.tenants[foundIndex] = entry;
   } else {
@@ -658,6 +712,10 @@ export function toTenantDirectory(registry) {
 
     if (tenant.usageLimit && typeof tenant.usageLimit === "object") {
       shared.usageLimit = cloneJsonValue(tenant.usageLimit, undefined);
+    }
+
+    if (tenant.spendLimit && typeof tenant.spendLimit === "object") {
+      shared.spendLimit = cloneJsonValue(tenant.spendLimit, undefined);
     }
 
     if (typeof tenant.x402Enabled === "boolean") {

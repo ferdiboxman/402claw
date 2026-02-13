@@ -20,6 +20,7 @@ import {
 import {
   appendAuditEvent,
   authenticateApiKey,
+  createWalletVerificationChallenge,
   createApiKeyForUser,
   defaultControlPlanePath,
   ensureUser,
@@ -29,9 +30,12 @@ import {
   listAuditEvents,
   listUsers,
   listWithdrawals,
+  processPendingWithdrawals,
   recordTenantRevenue,
+  rotateApiKey,
   revokeApiKey,
   requestWithdrawal,
+  verifyWalletVerificationChallenge,
 } from "./control-plane.js";
 import {
   createStorage,
@@ -49,9 +53,13 @@ const COMMAND_SCOPE = Object.freeze({
   "storage-rollback-d1": "admin",
   "revenue-credit": "ledger:write",
   withdraw: "withdraw",
+  "withdraw-batch": "withdraw",
   "user-create": "admin",
   "auth-create-key": "admin",
   "auth-revoke-key": "admin",
+  "auth-rotate-key": "admin",
+  "wallet-challenge": "admin",
+  "wallet-verify": "admin",
 });
 
 const AUDIT_ACTION = Object.freeze({
@@ -64,9 +72,13 @@ const AUDIT_ACTION = Object.freeze({
   "storage-rollback-d1": "storage_rollback_d1",
   "revenue-credit": "tenant_revenue_credit",
   withdraw: "tenant_withdrawal",
+  "withdraw-batch": "tenant_withdrawal_batch",
   "user-create": "user_create",
   "auth-create-key": "auth_key_create",
   "auth-revoke-key": "auth_key_revoke",
+  "auth-rotate-key": "auth_key_rotate",
+  "wallet-challenge": "wallet_challenge_create",
+  "wallet-verify": "wallet_challenge_verify",
 });
 
 const BOOTSTRAP_COMMANDS = new Set(["user-create", "auth-create-key"]);
@@ -180,6 +192,17 @@ function parseOptionalPositiveInt(value, fieldName) {
   return Math.floor(amount);
 }
 
+function parseOptionalPositiveAmount(value, fieldName) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error(`${fieldName} must be a positive number`);
+  }
+  return amount;
+}
+
 function resolveTenantLimitsFromFlags(flags) {
   const cpuMs = parseOptionalPositiveInt(flags["cpu-ms"], "cpu-ms");
   const subRequests = parseOptionalPositiveInt(
@@ -259,6 +282,24 @@ function resolveUsageLimitFromFlags(flags) {
     "quota-month",
   );
   if (monthlyRequests !== undefined) out.monthlyRequests = monthlyRequests;
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function resolveSpendLimitFromFlags(flags) {
+  const out = {};
+
+  const dailySpendUsd = parseOptionalPositiveAmount(
+    flags["spend-day"] ?? flags["daily-spend"],
+    "spend-day",
+  );
+  if (dailySpendUsd !== undefined) out.dailySpendUsd = dailySpendUsd;
+
+  const monthlySpendUsd = parseOptionalPositiveAmount(
+    flags["spend-month"] ?? flags["monthly-spend"],
+    "spend-month",
+  );
+  if (monthlySpendUsd !== undefined) out.monthlySpendUsd = monthlySpendUsd;
 
   return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -416,8 +457,8 @@ function printUsage() {
   console.log(`402claw CLI prototype
 
 Core commands:
-  deploy <source-path> --tenant <slug> --price <usd> [--type <dataset|function>] [--plan <plan>] [--host <hostname>] [--cpu-ms <n>] [--subrequests <n>] [--x402 <true|false>] [--rate-limit-caller <requests/window>] [--rate-limit-global <requests/window>] [--rate-limit-burst <n>] [--quota-day <requests>] [--quota-month <requests>] [--secret <ENV_NAME>] [--publish] [--dispatch-namespace <name>] [--registry <path>]
-  wrap <upstream-url> --tenant <slug> --price <usd> [--method <http-method>] [--inject-header "Name: Value"] [--inject-header-secret "Name: ENV_NAME"] [--secret <ENV_NAME>] [--cache-ttl <seconds>] [--transform <js-expression>] [--caller-rate-limit <requests/window>] [--quota-day <requests>] [--quota-month <requests>] [--publish] [--dispatch-namespace <name>] [--registry <path>]
+  deploy <source-path> --tenant <slug> --price <usd> [--type <dataset|function>] [--plan <plan>] [--host <hostname>] [--cpu-ms <n>] [--subrequests <n>] [--x402 <true|false>] [--rate-limit-caller <requests/window>] [--rate-limit-global <requests/window>] [--rate-limit-burst <n>] [--quota-day <requests>] [--quota-month <requests>] [--spend-day <usd>] [--spend-month <usd>] [--secret <ENV_NAME>] [--publish] [--dispatch-namespace <name>] [--registry <path>]
+  wrap <upstream-url> --tenant <slug> --price <usd> [--method <http-method>] [--inject-header "Name: Value"] [--inject-header-secret "Name: ENV_NAME"] [--secret <ENV_NAME>] [--cache-ttl <seconds>] [--transform <js-expression>] [--caller-rate-limit <requests/window>] [--quota-day <requests>] [--quota-month <requests>] [--spend-day <usd>] [--spend-month <usd>] [--publish] [--dispatch-namespace <name>] [--registry <path>]
   list [--registry <path>]
   show <tenant-slug> [--registry <path>]
   export-tenant-directory [--registry <path>]
@@ -435,7 +476,10 @@ Auth + audit commands:
   user-create --user <id> [--name <display-name>] [--control-plane <path>]
   auth-create-key --user <id> [--name <display-name>] [--scope <scope>] [--control-plane <path>]
   auth-revoke-key --key-id <id> [--control-plane <path>]
+  auth-rotate-key --key-id <id> [--scope <scope>] [--control-plane <path>]
   auth-list [--control-plane <path>]
+  wallet-challenge --user <id> --wallet <0x-address> [--ttl-minutes <n>] [--control-plane <path>]
+  wallet-verify --user <id> --wallet <0x-address> --challenge-id <id> --signature <hex-signature> [--control-plane <path>]
   audit-list [--limit <n>] [--actor <user-id>] [--action <action>] [--control-plane <path>]
 
 Payout commands:
@@ -443,6 +487,7 @@ Payout commands:
   balance --tenant <slug> [--control-plane <path>]
   withdrawals [--tenant <slug>] [--owner <user-id>] [--control-plane <path>]
   withdraw --tenant <slug> --amount <usd> --to <wallet-address> [--registry <path>] [--control-plane <path>]
+  withdraw-batch [--limit <n>] [--dry-run <true|false>] [--reference-prefix <value>] [--control-plane <path>]
 
 Global options:
   --api-key <key>            API key for authenticated commands
@@ -466,11 +511,20 @@ function buildAuditTarget(command, flags) {
   if (command === "user-create" || command === "auth-create-key") {
     return { targetType: "user", targetId: String(flags.user || "unknown") };
   }
+  if (command === "wallet-challenge" || command === "wallet-verify") {
+    return { targetType: "wallet", targetId: String(flags.wallet || "unknown") };
+  }
   if (command === "auth-revoke-key") {
+    return { targetType: "api_key", targetId: String(flags["key-id"] || "unknown") };
+  }
+  if (command === "auth-rotate-key") {
     return { targetType: "api_key", targetId: String(flags["key-id"] || "unknown") };
   }
   if (command === "revenue-credit" || command === "withdraw") {
     return { targetType: "tenant", targetId: String(flags.tenant || "unknown") };
+  }
+  if (command === "withdraw-batch") {
+    return { targetType: "withdrawals", targetId: "batch" };
   }
   if (command === "storage-migrate-json-to-d1" || command === "storage-rollback-d1") {
     return { targetType: "storage", targetId: String(flags["storage-path"] || "d1") };
@@ -608,6 +662,7 @@ async function run() {
       const hosts = flags.host === undefined ? undefined : asArray(flags.host);
       const rateLimit = resolveRateLimitFromFlags(flags);
       const usageLimit = resolveUsageLimitFromFlags(flags);
+      const spendLimit = resolveSpendLimitFromFlags(flags);
       const explicitSecretNames = parseExplicitSecretNames(flags);
       const x402Enabled = flags.x402 === undefined
         ? true
@@ -626,6 +681,7 @@ async function run() {
         x402Enabled,
         rateLimit,
         usageLimit,
+        spendLimit,
       };
 
       if (resourceType === "dataset") {
@@ -720,6 +776,7 @@ async function run() {
       const methods = asArray(flags.method).map((method) => String(method).toUpperCase());
       const rateLimit = resolveRateLimitFromFlags(flags);
       const usageLimit = resolveUsageLimitFromFlags(flags);
+      const spendLimit = resolveSpendLimitFromFlags(flags);
       const explicitSecretNames = parseExplicitSecretNames(flags);
       const x402Enabled = flags.x402 === undefined
         ? true
@@ -748,6 +805,7 @@ async function run() {
         proxy,
         rateLimit,
         usageLimit,
+        spendLimit,
         storage,
       });
 
@@ -981,6 +1039,9 @@ async function run() {
         ledgerEntries: controlPlaneState.ledger.length,
         withdrawals: controlPlaneState.withdrawals.length,
         auditEvents: controlPlaneState.auditEvents.length,
+        walletChallenges: Array.isArray(controlPlaneState.walletChallenges)
+          ? controlPlaneState.walletChallenges.length
+          : 0,
       };
 
       if (!execute) {
@@ -1090,6 +1151,9 @@ async function run() {
         ledgerEntries: Array.isArray(rollbackControlPlane.ledger) ? rollbackControlPlane.ledger.length : 0,
         withdrawals: Array.isArray(rollbackControlPlane.withdrawals) ? rollbackControlPlane.withdrawals.length : 0,
         auditEvents: Array.isArray(rollbackControlPlane.auditEvents) ? rollbackControlPlane.auditEvents.length : 0,
+        walletChallenges: Array.isArray(rollbackControlPlane.walletChallenges)
+          ? rollbackControlPlane.walletChallenges.length
+          : 0,
       };
 
       const execute = Boolean(flags.execute);
@@ -1239,6 +1303,40 @@ async function run() {
       return;
     }
 
+    if (command === "auth-rotate-key") {
+      if (!flags["key-id"]) {
+        throw new Error("auth-rotate-key requires --key-id");
+      }
+      const rotated = rotateApiKey({
+        controlPlanePath,
+        keyId: flags["key-id"],
+        scopes: flags.scope === undefined ? undefined : asArray(flags.scope),
+        storage,
+      });
+      commandResult = {
+        ok: true,
+        controlPlanePath,
+        previous: rotated.previous,
+        replacement: rotated.replacement.keyRecord,
+        apiKey: rotated.replacement.apiKey,
+      };
+      console.log(JSON.stringify(commandResult, null, 2));
+      maybeAppendAudit({
+        command,
+        controlPlanePath,
+        actorUserId: actorUser?.userId || rotated.previous.userId || "system",
+        flags,
+        ok: true,
+        result: {
+          previousKeyId: rotated.previous.keyId,
+          replacementKeyId: rotated.replacement.keyRecord.keyId,
+          userId: rotated.previous.userId,
+        },
+        storage,
+      });
+      return;
+    }
+
     if (command === "auth-list") {
       commandResult = {
         ok: true,
@@ -1247,6 +1345,93 @@ async function run() {
         apiKeys: listApiKeys(controlPlanePath, { storage }),
       };
       console.log(JSON.stringify(commandResult, null, 2));
+      return;
+    }
+
+    if (command === "wallet-challenge") {
+      if (!flags.user) {
+        throw new Error("wallet-challenge requires --user");
+      }
+      if (!flags.wallet) {
+        throw new Error("wallet-challenge requires --wallet");
+      }
+
+      const challenge = createWalletVerificationChallenge({
+        controlPlanePath,
+        userId: flags.user,
+        walletAddress: flags.wallet,
+        ttlMinutes: flags["ttl-minutes"],
+        storage,
+      });
+
+      commandResult = {
+        ok: true,
+        controlPlanePath,
+        challenge: {
+          challengeId: challenge.challengeId,
+          userId: challenge.userId,
+          walletAddress: challenge.walletAddress,
+          nonce: challenge.nonce,
+          issuedAt: challenge.issuedAt,
+          expiresAt: challenge.expiresAt,
+          message: challenge.message,
+        },
+      };
+      console.log(JSON.stringify(commandResult, null, 2));
+      maybeAppendAudit({
+        command,
+        controlPlanePath,
+        actorUserId: actorUser?.userId || challenge.userId,
+        flags,
+        ok: true,
+        result: {
+          challengeId: challenge.challengeId,
+          userId: challenge.userId,
+          walletAddress: challenge.walletAddress,
+        },
+        storage,
+      });
+      return;
+    }
+
+    if (command === "wallet-verify") {
+      if (!flags.user) {
+        throw new Error("wallet-verify requires --user");
+      }
+      if (!flags.wallet) {
+        throw new Error("wallet-verify requires --wallet");
+      }
+      if (!flags["challenge-id"]) {
+        throw new Error("wallet-verify requires --challenge-id");
+      }
+      if (!flags.signature) {
+        throw new Error("wallet-verify requires --signature");
+      }
+
+      const linked = verifyWalletVerificationChallenge({
+        controlPlanePath,
+        userId: flags.user,
+        walletAddress: flags.wallet,
+        challengeId: flags["challenge-id"],
+        signature: flags.signature,
+        storage,
+      });
+
+      commandResult = { ok: true, controlPlanePath, linked };
+      console.log(JSON.stringify(commandResult, null, 2));
+      maybeAppendAudit({
+        command,
+        controlPlanePath,
+        actorUserId: actorUser?.userId || linked.userId,
+        flags,
+        ok: true,
+        result: {
+          challengeId: linked.challengeId,
+          userId: linked.userId,
+          walletAddress: linked.walletAddress,
+        },
+        storage,
+      });
       return;
     }
 
@@ -1369,6 +1554,7 @@ async function run() {
         controlPlanePath,
         withdrawal,
         balance: getTenantBalance({ controlPlanePath, tenantSlug: tenant.slug, storage }),
+        next: "run withdraw-batch to process pending withdrawals",
       };
       console.log(JSON.stringify(commandResult, null, 2));
       maybeAppendAudit({
@@ -1382,6 +1568,41 @@ async function run() {
           tenant: tenant.slug,
           requestedUsd: withdrawal.requestedUsd,
           netPayoutUsd: withdrawal.netPayoutUsd,
+        },
+        storage,
+      });
+      return;
+    }
+
+    if (command === "withdraw-batch") {
+      const dryRun = flags["dry-run"] === undefined
+        ? false
+        : boolFlag(flags["dry-run"], true);
+      const result = processPendingWithdrawals({
+        controlPlanePath,
+        limit: Number(flags.limit || 100),
+        payoutReferencePrefix: flags["reference-prefix"] || "sim_payout",
+        dryRun,
+        storage,
+      });
+
+      commandResult = {
+        ok: true,
+        controlPlanePath,
+        batch: result,
+      };
+      console.log(JSON.stringify(commandResult, null, 2));
+      maybeAppendAudit({
+        command,
+        controlPlanePath,
+        actorUserId: actorUser?.userId || "system",
+        flags,
+        ok: true,
+        result: {
+          dryRun: result.dryRun,
+          processed: result.processed,
+          completed: result.completed,
+          failedInsufficientBalance: result.failedInsufficientBalance,
         },
         storage,
       });

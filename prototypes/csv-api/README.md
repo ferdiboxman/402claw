@@ -14,6 +14,9 @@ This prototype translates the W4P architecture decisions into executable multi-t
 - E2E paid x402 flow through dispatcher to upstream paywalled CSV API.
 - Optional edge x402 middleware (`x402Enabled`) with challenge/verify/settle flow.
 - Optional tenant usage quotas (`usageLimit.dailyRequests`, `usageLimit.monthlyRequests`).
+- Settlement idempotency and replay dedupe (`x-payment-idempotency-key`, `x-payment-deduped`).
+- Optional tenant spend caps (`spendLimit.dailySpendUsd`, `spendLimit.monthlySpendUsd`).
+- Settlement ledger + audit append-only writes to `CONTROL_DB` D1 when bound.
 - Built-in discovery analytics endpoints:
   - `GET /__platform/events?limit=100`
   - `GET /__platform/analytics?window=today|week|overall`
@@ -23,6 +26,9 @@ This prototype translates the W4P architecture decisions into executable multi-t
 ```bash
 cd /Users/Shared/Projects/402claw/prototypes/csv-api
 npm test
+
+# Optional Phase 1.3 wrangler integration test
+npm run test:d1:integration
 ```
 
 ## D1 Setup (Phase 1.1)
@@ -99,9 +105,11 @@ Expected env bindings/vars:
 - `DISPATCHER` (Workers for Platforms dispatch namespace binding)
 - `TENANT_DIRECTORY_JSON` (JSON string)
 - Optional: `USAGE_KV` (KV namespace for persistent analytics across isolates)
+- Optional: `BILLING_KV` (KV namespace for settlement idempotency/spend counters; falls back to `RATE_KV` when unset)
 - Optional: `FACILITATOR_URL` / `X402_FACILITATOR_URL` / `X402_FACILITATOR_PROD_URL`
 - Optional: `FACILITATOR_API_KEY`
 - Optional: `PAY_TO_ADDRESS`
+- Optional: `CONTROL_DB` (D1 binding for immutable settlement ledger + audit trail)
 
 `TENANT_DIRECTORY_JSON` supports:
 - `{"byHost": {...}, "bySlug": {...}}`
@@ -111,6 +119,7 @@ Tenant fields used by edge middleware/analytics:
 - `priceUsd`
 - `x402Enabled` (boolean)
 - `usageLimit.dailyRequests` / `usageLimit.monthlyRequests`
+- `spendLimit.dailySpendUsd` / `spendLimit.monthlySpendUsd`
 - `limits.cpuMs` + `limits.subRequests`
 - `ownerUserId` / `owner`
 - `directory`
@@ -119,6 +128,8 @@ Quota/rate response headers:
 - Rate limiting: `X-RateLimit-*`, `Retry-After`
 - Quotas: `X-Usage-Day-*`, `X-Usage-Month-*`
 - Quota exceeded: `X-Usage-Limit`, `X-Usage-Remaining`, `X-Usage-Reset`, `X-Usage-Window`, `Retry-After`
+- Spend caps: `X-Spend-*`, `X-Spend-Day-*`, `X-Spend-Month-*`
+- Settlement replay/idempotency: `x-payment-idempotency-key`, `x-payment-deduped`
 
 See `wrangler.example.toml` for a deploy shape example.
 
