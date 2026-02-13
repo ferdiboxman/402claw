@@ -1,0 +1,84 @@
+name: Deploy Dispatcher Staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      script_name:
+        description: "Cloudflare worker script name"
+        required: true
+        default: "clawr-dispatcher"
+      execute:
+        description: "Run real deploy (false = dry-run only)"
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  deploy:
+    name: Deploy dispatcher to staging
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_DISPATCH_NAMESPACE: ${{ secrets.CLOUDFLARE_DISPATCH_NAMESPACE }}
+      CLOUDFLARE_USAGE_KV_ID: ${{ secrets.CLOUDFLARE_USAGE_KV_ID }}
+      CLOUDFLARE_RATE_KV_ID: ${{ secrets.CLOUDFLARE_RATE_KV_ID }}
+    defaults:
+      run:
+        working-directory: prototypes/cli
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: prototypes/cli/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate required secrets
+        run: |
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_DISPATCH_NAMESPACE"
+
+      - name: Deploy dry-run
+        run: |
+          args=(
+            cloudflare-deploy-dispatcher
+            --script-name "${{ inputs.script_name }}"
+            --account-id "$CLOUDFLARE_ACCOUNT_ID"
+            --api-token "$CLOUDFLARE_API_TOKEN"
+            --dispatch-namespace "$CLOUDFLARE_DISPATCH_NAMESPACE"
+          )
+          if [[ -n "$CLOUDFLARE_USAGE_KV_ID" ]]; then
+            args+=(--usage-kv-id "$CLOUDFLARE_USAGE_KV_ID")
+          fi
+          if [[ -n "$CLOUDFLARE_RATE_KV_ID" ]]; then
+            args+=(--rate-kv-id "$CLOUDFLARE_RATE_KV_ID")
+          fi
+          node src/index.js "${args[@]}"
+
+      - name: Deploy execute
+        if: ${{ inputs.execute == true }}
+        run: |
+          args=(
+            cloudflare-deploy-dispatcher
+            --script-name "${{ inputs.script_name }}"
+            --account-id "$CLOUDFLARE_ACCOUNT_ID"
+            --api-token "$CLOUDFLARE_API_TOKEN"
+            --dispatch-namespace "$CLOUDFLARE_DISPATCH_NAMESPACE"
+            --execute
+          )
+          if [[ -n "$CLOUDFLARE_USAGE_KV_ID" ]]; then
+            args+=(--usage-kv-id "$CLOUDFLARE_USAGE_KV_ID")
+          fi
+          if [[ -n "$CLOUDFLARE_RATE_KV_ID" ]]; then
+            args+=(--rate-kv-id "$CLOUDFLARE_RATE_KV_ID")
+          fi
+          node src/index.js "${args[@]}"
