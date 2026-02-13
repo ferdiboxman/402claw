@@ -1,0 +1,6 @@
+[submodule "research/codex-research/prototypes/external/csv2api"]
+	path = research/codex-research/prototypes/external/csv2api
+	url = https://github.com/jai0651/csv2api.git
+[submodule "research/codex-research/prototypes/external/x402"]
+	path = research/codex-research/prototypes/external/x402
+	url = https://github.com/coinbase/x402.git
