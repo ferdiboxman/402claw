@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -20,486 +22,959 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { 
-  Plus, 
-  TrendingUp,
-  TrendingDown,
-  Zap,
+import {
+  Activity,
+  BarChart3,
+  Bot,
+  Check,
+  Copy,
   Database,
   DollarSign,
-  Activity,
-  Copy,
-  MoreHorizontal,
   ExternalLink,
+  Plus,
+  RefreshCcw,
+  Search,
   Settings,
-  BarChart3,
-  Clock,
-  Users,
-  ArrowUpRight,
-  ArrowDownRight,
-  Check
+  Shield,
+  Wallet,
+  Zap,
 } from "lucide-react";
 
-// Mock data
-const apis = [
-  {
-    id: "api_1",
-    name: "Product Catalog",
-    slug: "products",
-    requests: 12847,
-    requestsChange: 12,
-    revenue: 12.85,
-    revenueChange: 8,
-    price: 0.001,
-    status: "active",
-    type: "dataset",
-    createdAt: "2024-01-15",
-    lastCall: "2m ago",
-    callers: 234,
-    avgLatency: 45,
-    sparkline: [40, 55, 45, 60, 75, 65, 80, 90, 85, 95, 88, 100],
-  },
-  {
-    id: "api_2", 
-    name: "Weather Data",
-    slug: "weather",
-    requests: 8234,
-    requestsChange: -3,
-    revenue: 82.34,
-    revenueChange: 15,
-    price: 0.01,
-    status: "active",
-    type: "proxy",
-    createdAt: "2024-01-20",
-    lastCall: "5m ago",
-    callers: 156,
-    avgLatency: 120,
-    sparkline: [60, 55, 70, 65, 80, 75, 85, 70, 75, 80, 85, 78],
-  },
-  {
-    id: "api_3",
-    name: "Stock Prices",
-    slug: "stocks",
-    requests: 3421,
-    requestsChange: 25,
-    revenue: 17.11,
-    revenueChange: 22,
-    price: 0.005,
-    status: "active",
-    type: "function",
-    createdAt: "2024-02-01",
-    lastCall: "8m ago",
-    callers: 89,
-    avgLatency: 85,
-    sparkline: [20, 35, 30, 45, 55, 50, 65, 70, 75, 85, 90, 95],
-  },
-];
+type TrendWindow = "today" | "week" | "overall";
+type TabKey = "today" | "week" | "all";
+type DeployMode = "dataset" | "function" | "proxy";
 
-const recentActivity = [
-  { time: "2m ago", event: "API call", api: "products", amount: 0.001, caller: "0x1a2b...3c4d" },
-  { time: "5m ago", event: "API call", api: "weather", amount: 0.01, caller: "0x5e6f...7g8h" },
-  { time: "8m ago", event: "API call", api: "products", amount: 0.001, caller: "0x9i0j...1k2l" },
-  { time: "12m ago", event: "API call", api: "stocks", amount: 0.005, caller: "0x3m4n...5o6p" },
-  { time: "15m ago", event: "API call", api: "weather", amount: 0.01, caller: "0x7q8r...9s0t" },
-  { time: "18m ago", event: "Withdrawal", api: "-", amount: -50.00, caller: "You" },
-  { time: "1h ago", event: "API call", api: "stocks", amount: 0.005, caller: "0x1u2v...3w4x" },
-];
+type HeroStats = {
+  activeAgents: number;
+  publishedApis: number;
+  directories: number;
+  calls: number;
+  revenueUsd: number;
+};
+
+type TrendingApi = {
+  id: string;
+  endpoint: string;
+  owner: string;
+  directory: string;
+  priceUsd: number;
+  calls: number;
+  revenueUsd: number;
+  uniqueCallers: number;
+  latencyMs: number;
+  errorRatePct: number;
+  uptimePct: number;
+  rank?: number;
+};
+
+type DirectorySnapshot = {
+  directory: string;
+  calls: number;
+  revenueUsd: number;
+  apis: number;
+  uniqueCallers: number;
+};
+
+type WindowSnapshot = {
+  window: TrendWindow;
+  generatedAt: string;
+  heroStats: HeroStats;
+  topApis: TrendingApi[];
+  directories: DirectorySnapshot[];
+};
+
+type AnalyticsResponse = {
+  ok: boolean;
+  snapshot: WindowSnapshot;
+};
+
+type SessionResponse = {
+  ok: boolean;
+  authenticated: boolean;
+  session: {
+    walletAddress: string;
+  } | null;
+};
+
+type DeployForm = {
+  mode: DeployMode;
+  tenant: string;
+  sourcePath: string;
+  upstreamUrl: string;
+  owner: string;
+  plan: string;
+  priceUsd: string;
+  host: string;
+  rateLimitCaller: string;
+  quotaDay: string;
+  quotaMonth: string;
+  spendDay: string;
+  spendMonth: string;
+  x402Enabled: boolean;
+  publish: boolean;
+  dispatchNamespace: string;
+};
+
+const ALL_CATEGORIES = "All";
+const POLL_MS = 30_000;
+const TAB_TO_WINDOW: Record<TabKey, TrendWindow> = {
+  today: "today",
+  week: "week",
+  all: "overall",
+};
+
+const DEFAULT_DEPLOY_FORM: DeployForm = {
+  mode: "dataset",
+  tenant: "my-api",
+  sourcePath: "../x402-server/data/sample.csv",
+  upstreamUrl: "https://api.example.com/v1",
+  owner: "",
+  plan: "free",
+  priceUsd: "0.01",
+  host: "",
+  rateLimitCaller: "100/60s",
+  quotaDay: "",
+  quotaMonth: "",
+  spendDay: "",
+  spendMonth: "",
+  x402Enabled: true,
+  publish: false,
+  dispatchNamespace: "clawr-staging",
+};
+
+function emptySnapshot(window: TrendWindow): WindowSnapshot {
+  return {
+    window,
+    generatedAt: new Date().toISOString(),
+    heroStats: {
+      activeAgents: 0,
+      publishedApis: 0,
+      directories: 0,
+      calls: 0,
+      revenueUsd: 0,
+    },
+    topApis: [],
+    directories: [],
+  };
+}
+
+function formatCompact(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: value >= 1 ? 2 : 3,
+    maximumFractionDigits: value >= 1 ? 2 : 3,
+  }).format(value);
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return "0.0%";
+  return `${value.toFixed(1)}%`;
+}
+
+function shortEndpointLabel(endpoint: string): string {
+  const trimmed = endpoint.replace(/^\/+/, "");
+  if (!trimmed) return "API";
+  const token = trimmed.split("/").filter(Boolean).pop();
+  if (!token) return "API";
+  return token
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function shellQuote(value: string): string {
+  return JSON.stringify(value);
+}
+
+function addFlag(parts: string[], flag: string, value: string): void {
+  const v = value.trim();
+  if (!v) return;
+  parts.push(`--${flag}`);
+  parts.push(shellQuote(v));
+}
+
+function buildDeployCommand(form: DeployForm): string {
+  const baseParts = [
+    "cd",
+    shellQuote("/Users/Shared/Projects/402claw/prototypes/cli"),
+    "&&",
+    "node",
+    "src/index.js",
+  ];
+
+  if (form.mode === "proxy") {
+    baseParts.push("wrap", shellQuote(form.upstreamUrl.trim() || "https://api.example.com/v1"));
+  } else {
+    baseParts.push("deploy", shellQuote(form.sourcePath.trim() || "../x402-server/data/sample.csv"));
+    baseParts.push("--type", form.mode);
+  }
+
+  addFlag(baseParts, "tenant", form.tenant);
+  addFlag(baseParts, "price", form.priceUsd);
+  addFlag(baseParts, "plan", form.plan);
+  addFlag(baseParts, "owner", form.owner);
+  addFlag(baseParts, "host", form.host);
+  addFlag(baseParts, "rate-limit-caller", form.rateLimitCaller);
+  addFlag(baseParts, "quota-day", form.quotaDay);
+  addFlag(baseParts, "quota-month", form.quotaMonth);
+  addFlag(baseParts, "spend-day", form.spendDay);
+  addFlag(baseParts, "spend-month", form.spendMonth);
+  baseParts.push("--x402", form.x402Enabled ? "true" : "false");
+
+  if (form.publish) {
+    baseParts.push("--publish");
+    addFlag(baseParts, "dispatch-namespace", form.dispatchNamespace);
+  }
+
+  return baseParts.join(" ");
+}
+
+async function fetchSnapshot(window: TrendWindow): Promise<WindowSnapshot> {
+  const response = await fetch(`/api/explore/analytics?window=${window}&top=50`, {
+    cache: "no-store",
+  });
+  if (!response.ok) return emptySnapshot(window);
+
+  const payload = (await response.json()) as AnalyticsResponse;
+  if (!payload.ok || !payload.snapshot) return emptySnapshot(window);
+  return payload.snapshot;
+}
 
 export default function Dashboard() {
-  const [selectedApi, setSelectedApi] = useState<typeof apis[0] | null>(null);
-  const [copied, setCopied] = useState(false);
-  
-  const totalRevenue = apis.reduce((sum, api) => sum + api.revenue, 0);
-  const totalRequests = apis.reduce((sum, api) => sum + api.requests, 0);
-  const avgRevenueChange = Math.round(apis.reduce((sum, api) => sum + api.revenueChange, 0) / apis.length);
+  const [windowTab, setWindowTab] = useState<TabKey>("today");
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState(ALL_CATEGORIES);
+  const [selectedApi, setSelectedApi] = useState<TrendingApi | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardCopied, setWizardCopied] = useState(false);
+  const [endpointCopied, setEndpointCopied] = useState(false);
+  const [form, setForm] = useState<DeployForm>(DEFAULT_DEPLOY_FORM);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [snapshots, setSnapshots] = useState<Record<TrendWindow, WindowSnapshot>>({
+    today: emptySnapshot("today"),
+    week: emptySnapshot("week"),
+    overall: emptySnapshot("overall"),
+  });
 
-  const copyEndpoint = (slug: string) => {
-    navigator.clipboard.writeText(`https://api.clawr.ai/v1/${slug}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const activeWindow = TAB_TO_WINDOW[windowTab];
+  const activeSnapshot = snapshots[activeWindow];
+
+  const categories = useMemo(() => {
+    return [ALL_CATEGORIES, ...activeSnapshot.directories.map((item) => item.directory)];
+  }, [activeSnapshot.directories]);
+
+  useEffect(() => {
+    if (!categories.includes(category)) {
+      setCategory(ALL_CATEGORIES);
+    }
+  }, [categories, category]);
+
+  const filteredApis = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return activeSnapshot.topApis.filter((api) => {
+      if (category !== ALL_CATEGORIES && api.directory !== category) {
+        return false;
+      }
+
+      if (!needle) return true;
+      return (
+        api.endpoint.toLowerCase().includes(needle) ||
+        api.owner.toLowerCase().includes(needle) ||
+        api.directory.toLowerCase().includes(needle)
+      );
+    });
+  }, [activeSnapshot.topApis, category, search]);
+
+  const deployCommand = useMemo(() => buildDeployCommand(form), [form]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSession = async () => {
+      try {
+        const response = await fetch("/api/auth/session", { cache: "no-store" });
+        const payload = (await response.json()) as SessionResponse;
+        if (cancelled) return;
+        if (payload.ok && payload.authenticated && payload.session) {
+          setWalletAddress(payload.session.walletAddress);
+        }
+      } catch {
+        if (cancelled) return;
+        setWalletAddress(null);
+      }
+    };
+
+    loadSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async (background = false) => {
+      if (background) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+
+      try {
+        const [today, week, overall] = await Promise.all([
+          fetchSnapshot("today"),
+          fetchSnapshot("week"),
+          fetchSnapshot("overall"),
+        ]);
+
+        if (cancelled) return;
+        setSnapshots({ today, week, overall });
+      } catch (loadError) {
+        if (cancelled) return;
+        setError(loadError instanceof Error ? loadError.message : "analytics_load_failed");
+      } finally {
+        if (cancelled) return;
+        setLoading(false);
+        setRefreshing(false);
+      }
+    };
+
+    load(false);
+    const interval = setInterval(() => {
+      load(true).catch(() => {});
+    }, POLL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const activityRows = useMemo(() => {
+    return activeSnapshot.topApis.slice(0, 8).map((api, index) => {
+      const minutesAgo = 2 + (index * 3);
+      return {
+        id: `${api.id}-${index}`,
+        time: `${minutesAgo}m ago`,
+        event: "Settled request window",
+        api: api.endpoint,
+        amount: api.revenueUsd,
+        caller: api.owner,
+      };
+    });
+  }, [activeSnapshot.topApis]);
+
+  const copyEndpoint = async (endpoint: string) => {
+    await navigator.clipboard.writeText(endpoint);
+    setEndpointCopied(true);
+    window.setTimeout(() => setEndpointCopied(false), 1500);
+  };
+
+  const copyWizardCommand = async () => {
+    await navigator.clipboard.writeText(deployCommand);
+    setWizardCopied(true);
+    window.setTimeout(() => setWizardCopied(false), 1500);
   };
 
   return (
     <div className="min-h-screen">
-      {/* Sidebar */}
       <aside className="fixed left-0 top-0 bottom-0 w-56 bg-sidebar border-r border-sidebar-border p-4">
-        <div className="flex items-center gap-2 mb-8">
+        <div className="mb-8 flex items-center gap-2">
           <span className="font-semibold tracking-tight">clawr</span>
           <Badge variant="secondary" className="text-[10px] px-1.5 py-0">beta</Badge>
         </div>
-        
+
         <nav className="space-y-1">
-          <NavItem icon={<Activity className="w-4 h-4" />} label="Overview" active />
-          <NavItem icon={<Database className="w-4 h-4" />} label="APIs" />
-          <NavItem icon={<DollarSign className="w-4 h-4" />} label="Earnings" />
-          <NavItem icon={<BarChart3 className="w-4 h-4" />} label="Analytics" />
-          <NavItem icon={<Settings className="w-4 h-4" />} label="Settings" />
+          <NavItem icon={<Activity className="h-4 w-4" />} label="Overview" active />
+          <NavItem icon={<Database className="h-4 w-4" />} label="APIs" />
+          <NavItem icon={<DollarSign className="h-4 w-4" />} label="Earnings" />
+          <NavItem icon={<BarChart3 className="h-4 w-4" />} label="Analytics" />
+          <NavItem icon={<Settings className="h-4 w-4" />} label="Settings" />
         </nav>
-        
-        <div className="absolute bottom-4 left-4 right-4">
-          <Card className="bg-gradient-to-br from-card to-accent/20 border-border/50">
+
+        <div className="absolute bottom-4 left-4 right-4 space-y-3">
+          <Card className="border-border/70 bg-gradient-to-br from-card to-accent/20">
             <CardContent className="p-4">
-              <div className="text-xs text-muted-foreground mb-1">Available Balance</div>
-              <div className="text-2xl font-semibold tabular-nums mb-1">${totalRevenue.toFixed(2)}</div>
-              <div className="flex items-center gap-1 text-xs text-emerald-500 mb-3">
-                <TrendingUp className="w-3 h-3" />
-                <span>+{avgRevenueChange}% this week</span>
+              <div className="mb-1 text-xs text-muted-foreground">Balance (window)</div>
+              <div className="mb-2 text-2xl font-semibold tabular-nums">
+                {formatCurrency(activeSnapshot.heroStats.revenueUsd)}
+              </div>
+              <div className="mb-3 text-xs text-muted-foreground">
+                {activeWindow === "today" ? "Today" : activeWindow === "week" ? "This week" : "Overall"}
               </div>
               <Button size="sm" className="w-full" variant="default">
                 Withdraw
               </Button>
             </CardContent>
           </Card>
+
+          <Card className="border-border/70">
+            <CardContent className="p-3 text-xs text-muted-foreground space-y-2">
+              <div className="flex items-center gap-2">
+                <Wallet className="h-3.5 w-3.5" />
+                <span className="truncate">{walletAddress || "Session loading"}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Shield className="h-3.5 w-3.5" />
+                <span>Auth protected</span>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </aside>
 
-      {/* Main content */}
       <main className="ml-56 p-8">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="mb-8 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
-            <p className="text-sm text-muted-foreground">Monitor your APIs and earnings in real-time</p>
+            <p className="text-sm text-muted-foreground">Live marketplace analytics + creator controls</p>
           </div>
-          <Button className="gap-2">
-            <Plus className="w-4 h-4" />
-            Deploy API
-          </Button>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setRefreshing(true);
+                Promise.all([
+                  fetchSnapshot("today"),
+                  fetchSnapshot("week"),
+                  fetchSnapshot("overall"),
+                ])
+                  .then(([today, week, overall]) => setSnapshots({ today, week, overall }))
+                  .finally(() => setRefreshing(false));
+              }}
+              className="gap-2"
+            >
+              <RefreshCcw className="h-4 w-4" />
+              {refreshing ? "Refreshing" : "Refresh"}
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/settings" className="gap-2">
+                <Settings className="h-4 w-4" />
+                Settings
+              </Link>
+            </Button>
+            <Button className="gap-2" onClick={() => setWizardOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Deploy API
+            </Button>
+          </div>
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-4 gap-4 mb-8">
-          <StatCard 
-            title="Total Revenue"
-            value={`$${totalRevenue.toFixed(2)}`}
-            change={avgRevenueChange}
-            icon={<DollarSign className="w-4 h-4" />}
-            sparkline={[40, 55, 45, 60, 75, 65, 80, 90, 85, 95, 88, 100]}
-          />
-          <StatCard 
-            title="Total Requests"
-            value={totalRequests.toLocaleString()}
-            change={12}
-            icon={<Zap className="w-4 h-4" />}
-            sparkline={[60, 55, 70, 65, 80, 75, 85, 70, 75, 80, 85, 90]}
-          />
-          <StatCard 
-            title="Active APIs"
-            value={apis.length.toString()}
-            subtitle="All healthy"
-            icon={<Database className="w-4 h-4" />}
-          />
-          <StatCard 
-            title="Unique Callers"
-            value={(apis.reduce((sum, a) => sum + a.callers, 0)).toLocaleString()}
-            change={8}
-            icon={<Users className="w-4 h-4" />}
-            sparkline={[30, 40, 35, 50, 45, 55, 60, 65, 70, 68, 75, 80]}
-          />
-        </div>
-
-        {/* Tabs */}
-        <Tabs defaultValue="apis" className="space-y-4">
-          <TabsList className="bg-card border border-border">
-            <TabsTrigger value="apis">Your APIs</TabsTrigger>
-            <TabsTrigger value="activity">Activity Feed</TabsTrigger>
+        <Tabs value={windowTab} onValueChange={(value) => setWindowTab(value as TabKey)} className="space-y-4">
+          <TabsList className="border border-border bg-card">
+            <TabsTrigger value="today">Today</TabsTrigger>
+            <TabsTrigger value="week">This Week</TabsTrigger>
+            <TabsTrigger value="all">Overall</TabsTrigger>
           </TabsList>
+        </Tabs>
 
-          <TabsContent value="apis">
-            <Card>
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent border-border">
-                    <TableHead className="w-[250px]">API</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">Price</TableHead>
-                    <TableHead className="text-right">Requests</TableHead>
-                    <TableHead className="text-right">Revenue</TableHead>
-                    <TableHead className="text-right">Trend</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {apis.map((api) => (
-                    <TableRow 
-                      key={api.id} 
-                      className="cursor-pointer hover:bg-accent/50 transition-colors"
-                      onClick={() => setSelectedApi(api)}
-                    >
-                      <TableCell>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{api.name}</span>
-                          <span className="text-xs text-muted-foreground font-mono">/v1/{api.slug}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="font-normal capitalize">
-                          {api.type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">
-                        ${api.price.toFixed(3)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex flex-col items-end">
-                          <span className="tabular-nums">{api.requests.toLocaleString()}</span>
-                          <span className={`text-xs flex items-center gap-0.5 ${api.requestsChange >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                            {api.requestsChange >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                            {Math.abs(api.requestsChange)}%
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex flex-col items-end">
-                          <span className="font-medium tabular-nums">${api.revenue.toFixed(2)}</span>
-                          <span className={`text-xs flex items-center gap-0.5 ${api.revenueChange >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                            {api.revenueChange >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                            {Math.abs(api.revenueChange)}%
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <MiniSparkline data={api.sparkline} />
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm" onClick={(e) => e.stopPropagation()}>
-                          <MoreHorizontal className="w-4 h-4" />
-                        </Button>
-                      </TableCell>
+        {loading ? (
+          <Card className="mb-6 border-border/70">
+            <CardContent className="p-6 text-sm text-muted-foreground">Loading live analytics…</CardContent>
+          </Card>
+        ) : null}
+
+        {error ? (
+          <div className="mb-6 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            Dashboard analytics failed to load: {error}
+          </div>
+        ) : null}
+
+        <div className="mb-8 grid grid-cols-4 gap-4">
+          <StatCard
+            title="Revenue"
+            value={formatCurrency(activeSnapshot.heroStats.revenueUsd)}
+            subtitle="Gross for selected window"
+            icon={<DollarSign className="h-4 w-4" />}
+          />
+          <StatCard
+            title="Calls"
+            value={formatCompact(activeSnapshot.heroStats.calls)}
+            subtitle="Settled + challenged traffic"
+            icon={<Zap className="h-4 w-4" />}
+          />
+          <StatCard
+            title="Published APIs"
+            value={formatCompact(activeSnapshot.heroStats.publishedApis)}
+            subtitle="Active in directory"
+            icon={<Database className="h-4 w-4" />}
+          />
+          <StatCard
+            title="Active Agents"
+            value={formatCompact(activeSnapshot.heroStats.activeAgents)}
+            subtitle="Unique callers"
+            icon={<Bot className="h-4 w-4" />}
+          />
+        </div>
+
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <div className="relative w-full max-w-md">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search APIs by endpoint, owner, or category"
+              className="pl-10"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {categories.map((item) => (
+              <Button
+                key={item}
+                size="sm"
+                variant={category === item ? "secondary" : "ghost"}
+                onClick={() => setCategory(item)}
+              >
+                {item}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-[1.8fr,1fr] gap-6">
+          <Card className="border-border/70">
+            <CardHeader>
+              <CardTitle className="text-base">Top APIs</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {filteredApis.length === 0 ? (
+                <div className="p-6 text-sm text-muted-foreground">
+                  No APIs found for this filter.
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-border hover:bg-transparent">
+                      <TableHead>API</TableHead>
+                      <TableHead>Owner</TableHead>
+                      <TableHead className="text-right">Price</TableHead>
+                      <TableHead className="text-right">Calls</TableHead>
+                      <TableHead className="text-right">Revenue</TableHead>
+                      <TableHead className="text-right">Latency</TableHead>
+                      <TableHead className="text-right">Health</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Card>
-          </TabsContent>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredApis.map((api, index) => (
+                      <TableRow
+                        key={`${api.id}-${index}`}
+                        className="cursor-pointer transition-colors hover:bg-accent/40"
+                        onClick={() => setSelectedApi(api)}
+                      >
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{shortEndpointLabel(api.endpoint)}</span>
+                            <span className="font-mono text-xs text-muted-foreground">{api.endpoint}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{api.owner}</TableCell>
+                        <TableCell className="text-right font-mono tabular-nums">{formatCurrency(api.priceUsd)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatCompact(api.calls)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatCurrency(api.revenueUsd)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{api.latencyMs}ms</TableCell>
+                        <TableCell className="text-right">
+                          <div className="inline-flex items-center gap-2">
+                            <Badge variant="outline">{formatPercent(api.uptimePct)} uptime</Badge>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
 
-          <TabsContent value="activity">
-            <Card>
-              <div className="divide-y divide-border">
-                {recentActivity.map((activity, i) => (
-                  <div key={i} className="flex items-center justify-between p-4 hover:bg-accent/30 transition-colors">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                        activity.amount < 0 ? 'bg-orange-500/10' : 'bg-emerald-500/10'
-                      }`}>
-                        {activity.amount < 0 ? (
-                          <ArrowUpRight className="w-4 h-4 text-orange-500" />
-                        ) : (
-                          <Zap className="w-4 h-4 text-emerald-500" />
-                        )}
-                      </div>
+          <div className="space-y-6">
+            <Card className="border-border/70">
+              <CardHeader>
+                <CardTitle className="text-base">Recent Activity</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {activityRows.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No activity for this window.</div>
+                ) : (
+                  activityRows.map((activity) => (
+                    <div key={activity.id} className="flex items-center justify-between rounded-lg border border-border p-3">
                       <div>
                         <div className="text-sm font-medium">{activity.event}</div>
                         <div className="text-xs text-muted-foreground">
-                          {activity.api !== "-" && <span className="font-mono">/v1/{activity.api}</span>}
-                          {activity.api !== "-" && <span className="mx-2">•</span>}
-                          <span>{activity.caller}</span>
+                          {activity.api} • {activity.caller}
                         </div>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <div className={`text-sm font-medium tabular-nums ${
-                        activity.amount < 0 ? 'text-orange-500' : 'text-emerald-500'
-                      }`}>
-                        {activity.amount < 0 ? '' : '+'}${Math.abs(activity.amount).toFixed(3)}
+                      <div className="text-right">
+                        <div className="text-sm font-medium tabular-nums text-emerald-500">
+                          +{formatCurrency(activity.amount)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">{activity.time}</div>
                       </div>
-                      <div className="text-xs text-muted-foreground">{activity.time}</div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/70">
+              <CardHeader>
+                <CardTitle className="text-base">Directory Leaders</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {activeSnapshot.directories.slice(0, 5).map((directory, index) => (
+                  <div key={`${directory.directory}-${index}`} className="rounded-lg border border-border p-3">
+                    <div className="mb-1 flex items-center justify-between">
+                      <div className="text-sm font-medium">{directory.directory}</div>
+                      <Badge variant="outline">{formatCompact(directory.apis)} APIs</Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>{formatCompact(directory.calls)} calls</span>
+                      <span>{formatCurrency(directory.revenueUsd)}</span>
                     </div>
                   </div>
                 ))}
-              </div>
+                {activeSnapshot.directories.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No directory data.</div>
+                ) : null}
+              </CardContent>
             </Card>
-          </TabsContent>
-        </Tabs>
+          </div>
+        </div>
       </main>
 
-      {/* API Detail Sheet */}
       <Sheet open={!!selectedApi} onOpenChange={() => setSelectedApi(null)}>
-        <SheetContent className="w-[450px] sm:max-w-[450px] overflow-y-auto">
-          {selectedApi && (
+        <SheetContent className="w-[460px] sm:max-w-[460px]">
+          {selectedApi ? (
             <>
               <SheetHeader className="pb-6">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <SheetTitle className="text-xl">{selectedApi.name}</SheetTitle>
-                    <SheetDescription className="font-mono text-sm mt-1">
-                      /v1/{selectedApi.slug}
-                    </SheetDescription>
-                  </div>
-                  <Badge variant="outline" className="capitalize">{selectedApi.type}</Badge>
-                </div>
+                <SheetTitle>{shortEndpointLabel(selectedApi.endpoint)}</SheetTitle>
+                <SheetDescription className="font-mono text-xs">{selectedApi.endpoint}</SheetDescription>
               </SheetHeader>
 
-              {/* Quick Stats */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="p-4 rounded-lg bg-accent/30 border border-border">
-                  <div className="text-xs text-muted-foreground mb-1">Revenue</div>
-                  <div className="text-2xl font-semibold tabular-nums">${selectedApi.revenue.toFixed(2)}</div>
-                  <div className={`text-xs flex items-center gap-0.5 mt-1 ${selectedApi.revenueChange >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                    {selectedApi.revenueChange >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                    {Math.abs(selectedApi.revenueChange)}% vs last week
-                  </div>
-                </div>
-                <div className="p-4 rounded-lg bg-accent/30 border border-border">
-                  <div className="text-xs text-muted-foreground mb-1">Requests</div>
-                  <div className="text-2xl font-semibold tabular-nums">{selectedApi.requests.toLocaleString()}</div>
-                  <div className={`text-xs flex items-center gap-0.5 mt-1 ${selectedApi.requestsChange >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                    {selectedApi.requestsChange >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                    {Math.abs(selectedApi.requestsChange)}% vs last week
-                  </div>
-                </div>
+              <div className="mb-6 grid grid-cols-2 gap-3">
+                <Panel title="Revenue" value={formatCurrency(selectedApi.revenueUsd)} />
+                <Panel title="Calls" value={formatCompact(selectedApi.calls)} />
+                <Panel title="Price" value={formatCurrency(selectedApi.priceUsd)} />
+                <Panel title="Callers" value={formatCompact(selectedApi.uniqueCallers)} />
               </div>
 
-              {/* Details */}
-              <div className="space-y-4 mb-6">
-                <h3 className="text-sm font-medium">Details</h3>
-                <div className="space-y-3">
-                  <DetailRow label="Price per request" value={`$${selectedApi.price.toFixed(4)}`} />
-                  <DetailRow label="Unique callers" value={selectedApi.callers.toString()} />
-                  <DetailRow label="Avg latency" value={`${selectedApi.avgLatency}ms`} />
-                  <DetailRow label="Last called" value={selectedApi.lastCall} />
-                  <DetailRow label="Created" value={selectedApi.createdAt} />
-                </div>
+              <div className="mb-6 space-y-2">
+                <ValueRow label="Owner" value={selectedApi.owner} />
+                <ValueRow label="Directory" value={selectedApi.directory} />
+                <ValueRow label="Uptime" value={formatPercent(selectedApi.uptimePct)} />
+                <ValueRow label="Error rate" value={formatPercent(selectedApi.errorRatePct)} />
+                <ValueRow label="Average latency" value={`${selectedApi.latencyMs}ms`} />
               </div>
 
-              {/* Endpoint */}
-              <div className="space-y-3 mb-6">
-                <h3 className="text-sm font-medium">Endpoint</h3>
-                <div 
-                  className="flex items-center justify-between p-3 rounded-lg bg-card border border-border cursor-pointer hover:bg-accent/30 transition-colors"
-                  onClick={() => copyEndpoint(selectedApi.slug)}
+              <div className="mb-6 space-y-2">
+                <div className="text-sm font-medium">Endpoint</div>
+                <button
+                  type="button"
+                  onClick={() => copyEndpoint(selectedApi.endpoint)}
+                  className="flex w-full items-center justify-between rounded-lg border border-border bg-card p-3 text-left transition-colors hover:bg-accent/40"
                 >
-                  <code className="text-sm font-mono">https://api.clawr.ai/v1/{selectedApi.slug}</code>
-                  {copied ? (
-                    <Check className="w-4 h-4 text-emerald-500" />
-                  ) : (
-                    <Copy className="w-4 h-4 text-muted-foreground" />
-                  )}
-                </div>
+                  <span className="font-mono text-xs">{selectedApi.endpoint}</span>
+                  {endpointCopied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                </button>
               </div>
 
-              {/* Actions */}
-              <div className="flex gap-3">
+              <div className="flex gap-2">
                 <Button className="flex-1 gap-2">
-                  <ExternalLink className="w-4 h-4" />
-                  View Analytics
+                  <ExternalLink className="h-4 w-4" />
+                  View API
                 </Button>
-                <Button variant="outline" className="gap-2">
-                  <Settings className="w-4 h-4" />
-                  Settings
+                <Button variant="outline" className="gap-2" asChild>
+                  <Link href="/settings">
+                    <Settings className="h-4 w-4" />
+                    Settings
+                  </Link>
                 </Button>
               </div>
             </>
-          )}
+          ) : null}
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={wizardOpen} onOpenChange={setWizardOpen}>
+        <SheetContent className="w-[620px] max-w-[96vw] overflow-y-auto sm:max-w-[620px]">
+          <SheetHeader className="pb-6">
+            <SheetTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5" />
+              Deploy API Wizard
+            </SheetTitle>
+            <SheetDescription>
+              Configure your API deployment and copy a ready-to-run CLI command.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Deploy mode">
+                <select
+                  value={form.mode}
+                  onChange={(event) => setForm((prev) => ({ ...prev, mode: event.target.value as DeployMode }))}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="dataset">dataset</option>
+                  <option value="function">function</option>
+                  <option value="proxy">proxy</option>
+                </select>
+              </Field>
+
+              <Field label="Tenant slug">
+                <Input
+                  value={form.tenant}
+                  onChange={(event) => setForm((prev) => ({ ...prev, tenant: event.target.value }))}
+                  placeholder="my-api"
+                />
+              </Field>
+            </div>
+
+            {form.mode === "proxy" ? (
+              <Field label="Upstream URL">
+                <Input
+                  value={form.upstreamUrl}
+                  onChange={(event) => setForm((prev) => ({ ...prev, upstreamUrl: event.target.value }))}
+                  placeholder="https://api.example.com/v1"
+                />
+              </Field>
+            ) : (
+              <Field label={form.mode === "dataset" ? "Dataset path" : "Function path"}>
+                <Input
+                  value={form.sourcePath}
+                  onChange={(event) => setForm((prev) => ({ ...prev, sourcePath: event.target.value }))}
+                  placeholder="../x402-server/data/sample.csv"
+                />
+              </Field>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Owner user">
+                <Input
+                  value={form.owner}
+                  onChange={(event) => setForm((prev) => ({ ...prev, owner: event.target.value }))}
+                  placeholder="alice"
+                />
+              </Field>
+
+              <Field label="Plan">
+                <select
+                  value={form.plan}
+                  onChange={(event) => setForm((prev) => ({ ...prev, plan: event.target.value }))}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="free">free</option>
+                  <option value="pro">pro</option>
+                  <option value="scale">scale</option>
+                </select>
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Price USD per call">
+                <Input
+                  value={form.priceUsd}
+                  onChange={(event) => setForm((prev) => ({ ...prev, priceUsd: event.target.value }))}
+                  placeholder="0.01"
+                />
+              </Field>
+
+              <Field label="Host (optional)">
+                <Input
+                  value={form.host}
+                  onChange={(event) => setForm((prev) => ({ ...prev, host: event.target.value }))}
+                  placeholder="acme.api.clawr.dev"
+                />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Rate limit caller">
+                <Input
+                  value={form.rateLimitCaller}
+                  onChange={(event) => setForm((prev) => ({ ...prev, rateLimitCaller: event.target.value }))}
+                  placeholder="100/60s"
+                />
+              </Field>
+
+              <Field label="Daily quota (optional)">
+                <Input
+                  value={form.quotaDay}
+                  onChange={(event) => setForm((prev) => ({ ...prev, quotaDay: event.target.value }))}
+                  placeholder="10000"
+                />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Monthly quota (optional)">
+                <Input
+                  value={form.quotaMonth}
+                  onChange={(event) => setForm((prev) => ({ ...prev, quotaMonth: event.target.value }))}
+                  placeholder="200000"
+                />
+              </Field>
+
+              <Field label="Daily spend cap (optional)">
+                <Input
+                  value={form.spendDay}
+                  onChange={(event) => setForm((prev) => ({ ...prev, spendDay: event.target.value }))}
+                  placeholder="25"
+                />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Monthly spend cap (optional)">
+                <Input
+                  value={form.spendMonth}
+                  onChange={(event) => setForm((prev) => ({ ...prev, spendMonth: event.target.value }))}
+                  placeholder="500"
+                />
+              </Field>
+
+              <Field label="Dispatch namespace">
+                <Input
+                  value={form.dispatchNamespace}
+                  onChange={(event) => setForm((prev) => ({ ...prev, dispatchNamespace: event.target.value }))}
+                  placeholder="clawr-staging"
+                />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex items-center gap-2 rounded-md border border-border p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.x402Enabled}
+                  onChange={(event) => setForm((prev) => ({ ...prev, x402Enabled: event.target.checked }))}
+                />
+                Enable x402 payments
+              </label>
+
+              <label className="flex items-center gap-2 rounded-md border border-border p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.publish}
+                  onChange={(event) => setForm((prev) => ({ ...prev, publish: event.target.checked }))}
+                />
+                Publish to Cloudflare
+              </label>
+            </div>
+
+            <Field label="Generated command">
+              <div className="space-y-2">
+                <pre className="overflow-x-auto rounded-lg border border-border bg-muted/30 p-3 text-xs leading-5">
+                  {deployCommand}
+                </pre>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" onClick={copyWizardCommand} className="gap-2">
+                    {wizardCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    {wizardCopied ? "Copied" : "Copy command"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setForm(DEFAULT_DEPLOY_FORM);
+                      setWizardCopied(false);
+                    }}
+                  >
+                    Reset
+                  </Button>
+                </div>
+              </div>
+            </Field>
+
+            <div className="rounded-lg border border-border bg-accent/20 p-3 text-xs text-muted-foreground">
+              Command targets the local CLI at <code>/Users/Shared/Projects/402claw/prototypes/cli</code>.
+              Add <code>--api-key</code> if auth is enabled and you are not bootstrapping.
+            </div>
+          </div>
         </SheetContent>
       </Sheet>
     </div>
   );
 }
 
-function NavItem({ 
-  icon, 
-  label, 
-  active = false 
-}: { 
-  icon: React.ReactNode; 
-  label: string;
-  active?: boolean;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function NavItem({ icon, label, active = false }: { icon: React.ReactNode; label: string; active?: boolean }) {
   return (
     <button
-      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-        active 
-          ? "bg-accent text-foreground font-medium" 
-          : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+      type="button"
+      className={`w-full rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+        active
+          ? "bg-accent text-foreground font-medium"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
       }`}
     >
-      {icon}
-      {label}
+      <span className="flex items-center gap-3">
+        {icon}
+        {label}
+      </span>
     </button>
   );
 }
 
-function StatCard({ 
-  title, 
-  value, 
-  change,
+function StatCard({
+  title,
+  value,
   subtitle,
   icon,
-  sparkline
-}: { 
-  title: string; 
+}: {
+  title: string;
   value: string;
-  change?: number;
-  subtitle?: string;
-  icon?: React.ReactNode;
-  sparkline?: number[];
+  subtitle: string;
+  icon: React.ReactNode;
 }) {
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden border-border/70">
       <CardContent className="p-4">
-        <div className="flex items-start justify-between mb-3">
+        <div className="mb-3 flex items-start justify-between">
           <div className="text-sm text-muted-foreground">{title}</div>
-          {icon && (
-            <div className="w-8 h-8 rounded-lg bg-accent/50 flex items-center justify-center text-muted-foreground">
-              {icon}
-            </div>
-          )}
+          <div className="rounded-lg bg-accent/50 p-2 text-muted-foreground">{icon}</div>
         </div>
-        <div className="flex items-end justify-between">
-          <div>
-            <div className="text-2xl font-semibold tabular-nums">{value}</div>
-            {change !== undefined && (
-              <div className={`text-xs flex items-center gap-0.5 mt-1 ${change >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                {change >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                {Math.abs(change)}% vs last week
-              </div>
-            )}
-            {subtitle && (
-              <div className="text-xs text-muted-foreground mt-1">{subtitle}</div>
-            )}
-          </div>
-          {sparkline && (
-            <MiniSparkline data={sparkline} height={32} />
-          )}
-        </div>
+        <div className="text-2xl font-semibold tabular-nums">{value}</div>
+        <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div>
       </CardContent>
     </Card>
   );
 }
 
-function MiniSparkline({ data, height = 24 }: { data: number[]; height?: number }) {
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
-  
-  const points = data.map((value, i) => {
-    const x = (i / (data.length - 1)) * 60;
-    const y = height - ((value - min) / range) * height;
-    return `${x},${y}`;
-  }).join(' ');
-
-  const isPositive = data[data.length - 1] >= data[0];
-
+function Panel({ title, value }: { title: string; value: string }) {
   return (
-    <svg width="60" height={height} className="overflow-visible">
-      <polyline
-        points={points}
-        fill="none"
-        stroke={isPositive ? "#10b981" : "#ef4444"}
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <div className="rounded-lg border border-border bg-accent/20 p-3">
+      <div className="mb-1 text-xs text-muted-foreground">{title}</div>
+      <div className="text-lg font-semibold tabular-nums">{value}</div>
+    </div>
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function ValueRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between py-2 border-b border-border last:border-0">
+    <div className="flex items-center justify-between border-b border-border py-2 last:border-0">
       <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="text-sm font-medium tabular-nums">{value}</span>
+      <span className="text-sm font-medium">{value}</span>
     </div>
   );
 }

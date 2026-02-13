@@ -37,9 +37,51 @@ You can override upstream with:
 CLAWR_ANALYTICS_BASE_URL=https://your-dispatcher.workers.dev
 ```
 
+## Dashboard Live Data + Deploy Wizard (Phase 4.2/4.3)
+
+`/dashboard` now:
+
+- Polls live analytics (`today`, `week`, `overall`) via `/api/explore/analytics`
+- Replaces mock cards/tables with real dispatcher-backed metrics
+- Adds category + search filters for top APIs
+- Includes a "Deploy API Wizard" that generates valid local CLI commands for:
+  - `deploy` (dataset/function)
+  - `wrap` (proxy)
+
+The generated commands target:
+
+- `/Users/Shared/Projects/402claw/prototypes/cli`
+
 ## Build Check
 
 ```bash
 npm run lint
 npm run build
+```
+
+Build output uses `.next-codex/` to avoid `.next/` permission collisions in shared multi-agent environments.
+
+## Auth Flow (Phase 4.1)
+
+Wallet auth endpoints:
+
+- `POST /api/auth/challenge`
+- `POST /api/auth/verify`
+- `GET /api/auth/session`
+- `POST /api/auth/logout`
+
+Protected routes:
+
+- `/dashboard`
+- `/settings`
+
+Sign-in UI:
+
+- `/signin`
+
+Environment:
+
+```bash
+# Recommended for production
+CLAWR_SESSION_SECRET=replace_with_strong_random_secret
 ```

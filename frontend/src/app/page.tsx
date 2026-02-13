@@ -1,15 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { 
   ArrowRight, 
   Terminal, 
   Zap, 
   Shield, 
   Code,
-  Globe,
-  ChevronRight
+  Globe
 } from "lucide-react";
 
 export default function Home() {
@@ -28,8 +27,12 @@ export default function Home() {
           </div>
           
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm">Sign In</Button>
-            <Button size="sm">Get Started</Button>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/signin">Sign In</Link>
+            </Button>
+            <Button size="sm" asChild>
+              <Link href="/dashboard">Get Started</Link>
+            </Button>
           </div>
         </div>
       </nav>

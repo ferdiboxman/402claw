@@ -130,6 +130,14 @@ OPENAI_API_KEY=sk-demo node src/index.js wrap https://api.example.com/v1 \
 - [ ] Cloudflare Workers integration
 - [ ] Public beta
 
+## CI
+
+GitHub Actions pipeline is defined in `/Users/Shared/Projects/402claw/.github/workflows/ci.yml` and runs:
+- frontend lint + build
+- CLI tests
+- dispatcher tests
+- x402 server tests
+
 ## Team
 
 Built by [Ferdi](https://github.com/ferdiboxman) with AI assistance from Claude and Codex.
