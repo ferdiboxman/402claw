@@ -138,6 +138,9 @@ GitHub Actions pipeline is defined in `/Users/Shared/Projects/402claw/.github/wo
 - dispatcher tests
 - x402 server tests
 
+Dispatcher monitoring is defined in `/Users/Shared/Projects/402claw/.github/workflows/monitoring.yml` and runs every 30 minutes using:
+- `/Users/Shared/Projects/402claw/scripts/monitor-dispatcher.mjs`
+
 ## Team
 
 Built by [Ferdi](https://github.com/ferdiboxman) with AI assistance from Claude and Codex.
