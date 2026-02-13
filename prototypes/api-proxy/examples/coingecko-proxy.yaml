@@ -1,0 +1,14 @@
+type: proxy
+upstream: https://api.coingecko.com/api/v3
+methods:
+  - GET
+price: 0.002
+cacheTtlSeconds: 300
+transform: |
+  if (!Array.isArray(data)) return data
+  return data.map((coin) => ({
+    id: coin.id,
+    symbol: coin.symbol,
+    market_cap: coin.market_cap,
+    current_price: coin.current_price,
+  }))

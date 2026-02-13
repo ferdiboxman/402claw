@@ -1,0 +1,12 @@
+{
+  "name": "402claw-cli-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "402claw": "src/index.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

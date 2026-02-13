@@ -3,12 +3,14 @@ import { b64Decode, b64Encode, randomHex } from "./utils.js";
 export const PAYMENT_REQUIRED_HEADER = "payment-required";
 export const PAYMENT_SIGNATURE_HEADER = "payment-signature";
 export const PAYMENT_RESPONSE_HEADER = "payment-response";
+export const NETWORK_BASE_SEPOLIA = "eip155:84532";
+export const NETWORK_BASE_MAINNET = "eip155:8453";
 
-export function createPaymentRequirement({ resource, amount, payTo }) {
+export function createPaymentRequirement({ resource, amount, payTo, network = NETWORK_BASE_SEPOLIA }) {
   return {
     kind: "exact",
     scheme: "exact",
-    network: "base-sepolia",
+    network,
     resource,
     description: "Access protected CSV API endpoint",
     maxAmountRequired: String(amount),

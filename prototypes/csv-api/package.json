@@ -1,0 +1,10 @@
+{
+  "name": "402claw-dispatcher-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Workers-for-Platforms dispatcher prototype for 402claw",
+  "scripts": {
+    "test": "node --test"
+  }
+}

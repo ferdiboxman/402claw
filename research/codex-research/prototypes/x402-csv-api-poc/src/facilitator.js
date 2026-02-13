@@ -47,7 +47,7 @@ export function createMockFacilitator(options = {}) {
         kinds: [
           {
             kind: "exact",
-            network: "base-sepolia",
+            network: "eip155:84532",
             scheme: "exact",
             asset: "USDC",
           },

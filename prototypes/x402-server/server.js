@@ -12,6 +12,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { loadConfig } = require('./config');
 
 // Import x402 modules
 const { paymentMiddleware, x402ResourceServer } = require('@x402/express');
@@ -22,28 +23,36 @@ const app = express();
 app.use(express.json());
 
 // Configuration
-const PORT = process.env.PORT || 4021;
-const FACILITATOR_URL = process.env.FACILITATOR_URL || 'https://www.x402.org/facilitator';
-
-// Your receiving wallet address - CHANGE THIS to your own wallet!
-// Using the wallet from TOOLS.md
-const PAY_TO = process.env.PAY_TO || '0x5C78C7E37f3cCB01059167BaE3b4622b44f97D0F';
-
-// Network configuration
-// Base Sepolia (testnet) = eip155:84532
-// Base Mainnet = eip155:8453
-const NETWORK = process.env.NETWORK || 'eip155:84532';
+const config = loadConfig();
+const PORT = config.port;
+const FACILITATOR_URL = config.facilitatorUrl;
+const PAY_TO = config.payTo;
+const NETWORK = config.network;
+const RUNTIME_ENV = config.runtimeEnv;
+const FACILITATOR_API_KEY = config.facilitatorApiKey;
 
 console.log('=== x402 Prototype Server ===');
+console.log(`Runtime env: ${RUNTIME_ENV}`);
 console.log(`Facilitator: ${FACILITATOR_URL}`);
 console.log(`Pay to: ${PAY_TO}`);
 console.log(`Network: ${NETWORK}`);
 console.log('');
 
 // Create facilitator client
-const facilitatorClient = new HTTPFacilitatorClient({
-  url: FACILITATOR_URL
-});
+const facilitatorClientOptions = { url: FACILITATOR_URL };
+
+if (FACILITATOR_API_KEY) {
+  facilitatorClientOptions.createAuthHeaders = async () => {
+    const headers = { Authorization: `Bearer ${FACILITATOR_API_KEY}` };
+    return {
+      verify: headers,
+      settle: headers,
+      supported: headers,
+    };
+  };
+}
+
+const facilitatorClient = new HTTPFacilitatorClient(facilitatorClientOptions);
 
 // Create resource server and register EVM scheme
 const server = new x402ResourceServer(facilitatorClient)
@@ -112,6 +121,8 @@ app.get('/health', (req, res) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
+    runtimeEnv: RUNTIME_ENV,
+    network: NETWORK,
     endpoints: {
       free: ['/health', '/pricing'],
       paid: Object.keys(protectedRoutes),
@@ -133,6 +144,7 @@ app.get('/pricing', (req, res) => {
     facilitator: FACILITATOR_URL,
     payTo: PAY_TO,
     network: NETWORK,
+    runtimeEnv: RUNTIME_ENV,
     pricing,
   });
 });

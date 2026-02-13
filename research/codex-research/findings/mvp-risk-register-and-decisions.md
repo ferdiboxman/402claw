@@ -3,6 +3,10 @@
 ## Executive Summary
 This document converts deep-dive findings into concrete MVP decisions. The immediate path is viable: W4P runtime, x402 v2 transport, facilitator abstraction, and a CLI-first deployment flow. The main execution risk is not protocol correctness but operational reliability (facilitator outages, settlement failures, and cost controls).
 
+Decision authority note:
+- Treat this file as risk/action tracking.
+- Treat `research/codex-research/findings/canonical-architecture-decisions-v2.md` as the active decision contract for implementation.
+
 ## Key Findings
 - x402 + W4P architecture is feasible now with low integration risk.
 - Settlement and facilitator reliability are the critical unknowns.
@@ -69,4 +73,5 @@ const userWorker = env.DISPATCHER.get(tenant, {}, {
 - `deep-dives/x402-protocol-deep-dive.md`
 - `deep-dives/cloudflare-workers-for-platforms-deep-dive.md`
 - `competitive-analysis/rapidapi-val-town-seren-teardown.md`
+- `findings/canonical-architecture-decisions-v2.md`
 - See `research/claude-research/402claw-final-mvp-plan.md` for prior milestone assumptions.

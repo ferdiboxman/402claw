@@ -15,6 +15,7 @@ async function startServers() {
   const api = createCsvApiServer({
     csvPath: withCwd("fixtures", "airports.csv"),
     facilitatorUrl,
+    runtimeEnv: "test",
   });
   const aAddr = await api.start(0);
   const apiUrl = `http://${aAddr.host}:${aAddr.port}`;
@@ -57,6 +58,7 @@ async function runCall(apiUrl) {
 
   console.log(JSON.stringify({
     status: paid.response.status,
+    requestId: paid.response.headers.get("x-request-id"),
     retried: paid.retried,
     total: body.total,
     items: body.items,
@@ -78,6 +80,18 @@ async function runStatus(apiUrl, facilitatorUrl) {
   ]);
 
   console.log(JSON.stringify({ api: apiResp, facilitator: facResp }, null, 2));
+}
+
+async function runTelemetry(apiUrl, limit) {
+  const target = apiUrl || process.env.API_URL;
+  if (!target) {
+    throw new Error("usage: node src/cli.js telemetry <api-url> [limit]");
+  }
+
+  const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : 20;
+  const response = await fetch(`${target}/v1/telemetry?limit=${safeLimit}`);
+  const body = await response.json();
+  console.log(JSON.stringify(body, null, 2));
 }
 
 async function runStart() {
@@ -116,6 +130,11 @@ async function main() {
 
   if (command === "status") {
     await runStatus(process.argv[3], process.argv[4]);
+    return;
+  }
+
+  if (command === "telemetry") {
+    await runTelemetry(process.argv[3], process.argv[4]);
     return;
   }
 

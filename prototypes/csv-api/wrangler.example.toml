@@ -1,0 +1,27 @@
+name = "402claw-dispatcher-prototype"
+main = "src/cloudflare-worker.js"
+compatibility_date = "2026-02-12"
+workers_dev = true
+
+# Bind your Workers for Platforms dispatch namespace here.
+# In a real account, replace this with your namespace binding.
+[[dispatch_namespaces]]
+binding = "DISPATCHER"
+namespace = "YOUR_DISPATCH_NAMESPACE"
+outbound = { service = "YOUR_OUTBOUND_WORKER" }
+
+[vars]
+# Option A: provide byHost/bySlug structure
+# TENANT_DIRECTORY_JSON = '{"byHost":{},"bySlug":{}}'
+
+# Option B: provide tenants[] registry shape
+# TENANT_DIRECTORY_JSON = '{"tenants":[{"slug":"acme","tenantId":"tenant_acme","workerName":"tenant-acme-worker","plan":"pro","hosts":["acme.api.402claw.dev"]}]}'
+
+# Optional x402/facilitator settings
+# X402_FACILITATOR_URL = "https://facilitator.example.com"
+# PAY_TO_ADDRESS = "0x..."
+
+# Optional persistent usage analytics across isolates
+# [[kv_namespaces]]
+# binding = "USAGE_KV"
+# id = "YOUR_USAGE_KV_ID"

@@ -3,6 +3,15 @@
 ## Executive Summary
 Workers for Platforms (W4P) is a strong fit for 402claw because it gives multi-tenant isolation, dynamic per-tenant routing, and API-driven deployment of user code. The biggest design work is not deployment itself, but controlling runaway cost and abuse with custom limits, observability, and policy around outbound calls.
 
+## Canonical Alignment (2026-02-12)
+This deep dive explains runtime details. For active build decisions, use:
+- `research/codex-research/deep-dives/canonical-research-baseline-2026-02-12.md`
+- `research/codex-research/findings/canonical-architecture-decisions-v2.md`
+
+Operational requirements inherited from canonical decisions:
+- W4P dispatcher must enforce per-tenant custom limits (`cpuMs`, `subRequests`) from day one.
+- Request telemetry must include runtime environment and payment/facilitator dimensions.
+
 ## Key Findings
 - W4P is explicitly designed for running untrusted customer/AI-generated code in isolated Workers.
 - Core control plane is: dispatch namespace + dynamic dispatch worker + user workers (+ optional outbound worker).
@@ -141,4 +150,6 @@ mode = "smart"
 - https://developers.cloudflare.com/workers/configuration/placement/
 - https://developers.cloudflare.com/hyperdrive/
 - https://developers.cloudflare.com/workers/observability/
+- `research/codex-research/deep-dives/canonical-research-baseline-2026-02-12.md`
+- `research/codex-research/findings/canonical-architecture-decisions-v2.md`
 - See `research/claude-research/402claw-final-mvp-plan.md` for earlier hosting decision rationale.

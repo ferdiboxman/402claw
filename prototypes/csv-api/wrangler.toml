@@ -1,0 +1,11 @@
+name = "clawr-dispatcher"
+main = "src/cloudflare-worker.js"
+compatibility_date = "2026-02-12"
+compatibility_flags = ["nodejs_compat"]
+
+[[dispatch_namespaces]]
+binding = "DISPATCHER"
+namespace = "clawr-staging"
+
+[vars]
+TENANT_DIRECTORY_JSON = '{"bySlug":{"test-api":{"tenantId":"tenant_test","workerName":"clawr-test-api","plan":"free"}},"byHost":{}}'

@@ -3,6 +3,16 @@
 ## Executive Summary
 x402 v2 is now a clean HTTP challenge/response protocol (`402` + `PAYMENT-REQUIRED`, then retry with `PAYMENT-SIGNATURE`, then `PAYMENT-RESPONSE`) with explicit support for multiple mechanisms and networks. The implementation in `coinbase/x402` is mature enough for an MVP, but there are critical integration details around settlement timing, facilitator reliability, header compatibility (v1/v2), and permit2-specific `412` behavior.
 
+## Canonical Alignment (2026-02-12)
+Use this deep dive as protocol detail, not as the final decision source. Active implementation policy lives in:
+- `research/codex-research/deep-dives/canonical-research-baseline-2026-02-12.md`
+- `research/codex-research/findings/canonical-architecture-decisions-v2.md`
+
+Specific lock-ins from canonical decisions:
+- `prod` must not use `https://x402.org/facilitator`.
+- `prod` with CDP facilitator requires `FACILITATOR_API_KEY`.
+- Base mainnet for `prod` (`eip155:8453`) and Base Sepolia for `test` (`eip155:84532`).
+
 ## Key Findings
 - x402 v2 transport is header-first and backward-compatibility with v1 headers is still present in client wrappers.
 - `@x402/fetch` and `@x402/axios` include explicit retry-loop protection.
@@ -135,4 +145,6 @@ if (clonedRequest.headers.has("PAYMENT-SIGNATURE") || clonedRequest.headers.has(
 - https://github.com/coinbase/x402/blob/main/typescript/packages/core/src/http/httpFacilitatorClient.ts
 - https://github.com/coinbase/x402/blob/main/specs/schemes/exact/scheme_exact_evm.md
 - https://www.x402.org/facilitator/supported
+- `research/codex-research/deep-dives/canonical-research-baseline-2026-02-12.md`
+- `research/codex-research/findings/canonical-architecture-decisions-v2.md`
 - See `research/claude-research/402claw-technical-spec.md` for prior architecture context.

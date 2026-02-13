@@ -15,11 +15,23 @@ npm install
 # Start the server
 npm start
 
+# Explicit test mode (default)
+X402_ENV=test npm start
+
+# Production mode (uses CDP facilitator + Base mainnet defaults)
+X402_ENV=prod FACILITATOR_API_KEY=your_cdp_bearer_token npm start
+
 # Test free endpoint
 curl http://localhost:4021/health
 
 # Test paid endpoint (returns 402)
 curl -v http://localhost:4021/data
+
+# Run unit + scenario tests
+npm test
+
+# Optional: run a real paid call (skips if key missing)
+WALLET_PRIVATE_KEY=0x... npm run test:live
 ```
 
 ## Architecture
@@ -123,22 +135,41 @@ const response = await x402Fetch('http://localhost:4021/data');
 const data = await response.json();
 ```
 
+CLI shortcut in this prototype:
+
+```bash
+# Inspect 402 challenge
+node client.js challenge /data
+
+# Execute real payment (requires funded wallet key)
+WALLET_PRIVATE_KEY=0x... node client.js pay /data
+```
+
 ## Configuration
 
 Environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `X402_ENV` | `test` | Runtime mode (`test` or `prod`) |
 | `PORT` | 4021 | Server port |
 | `PAY_TO` | (hardcoded) | Recipient wallet address |
-| `NETWORK` | eip155:84532 | Network (Base Sepolia) |
-| `FACILITATOR_URL` | x402.org | Payment facilitator |
+| `NETWORK` | env-based | Optional override (`eip155:84532` test / `eip155:8453` prod) |
+| `FACILITATOR_URL` | env-based | Optional override (`x402.org/facilitator` test / CDP prod) |
+| `FACILITATOR_API_KEY` | (none) | Required for CDP facilitator in prod mode (`Authorization: Bearer ...`) |
+
+Guardrail:
+- In `X402_ENV=prod`, using `https://x402.org/facilitator` is blocked at startup.
+- In `X402_ENV=prod` with CDP facilitator, `FACILITATOR_API_KEY` is required.
 
 ## Files
 
 - `server.js` - Express server with x402 middleware
-- `client.js` - Client demonstration
-- `test-scenarios.sh` - Shell script for testing
+- `client.js` - Client CLI (`health`, `pricing`, `challenge`, `pay`)
+- `config.js` - Env/network/facilitator policy helpers
+- `test-scenarios.sh` - Shell script for testing (auto-starts server by default)
+- `tests/config.test.js` - Unit tests for runtime config rules
+- `scripts/live-payment-test.js` - Optional live paid-flow test
 - `data/sample.csv` - Sample CSV data
 
 ## Networks

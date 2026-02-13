@@ -3,6 +3,14 @@
 ## Executive Summary
 The market is splitting into three patterns: classic API marketplace (RapidAPI), programmable automation platform (Val Town), and agent-native pay-per-call ecosystem (Seren). 402claw should position as "csv/json to paid API in minutes" with low take-rate and no enterprise-heavy setup, while keeping an upgrade path to richer marketplace/discovery features.
 
+## Canonical Alignment (2026-02-12)
+Use this teardown for product strategy context, but treat pricing/fee references as time-bound signals. Active implementation and external messaging guardrails live in:
+- `research/codex-research/deep-dives/canonical-research-baseline-2026-02-12.md`
+- `research/codex-research/findings/canonical-architecture-decisions-v2.md`
+
+Messaging rule carried from canonical decisions:
+- competitor fee comparisons must include date and confidence level before using them in public copy.
+
 ## Key Findings
 - RapidAPI remains the closest direct benchmark on API monetization, but public messaging currently shows organizational and fee-model drift signals.
 - Val Town optimizes for developer speed and automation workflows, not explicit API monetization rails.
@@ -24,6 +32,7 @@ The market is splitting into three patterns: classic API marketplace (RapidAPI),
 Inference:
 - Provider fee expectations and messaging may be in transition; onboarding sales narrative likely changed post-acquisition.
 - For 402claw, this is a positioning opportunity: stable, simple low platform fee can be a headline.
+- Confidence note: fee-level claims are medium/low confidence until direct article capture is re-verified in a non-blocked environment.
 
 #### Weaknesses to exploit
 - Marketplace complexity before first revenue.
@@ -105,4 +114,6 @@ type Listing = {
 - https://serendb.com/pricing
 - https://github.com/serenorg/seren-desktop/blob/main/src/services/catalog.ts
 - https://github.com/serenorg/seren-desktop/blob/main/src/services/chat.ts
+- `research/codex-research/deep-dives/canonical-research-baseline-2026-02-12.md`
+- `research/codex-research/findings/canonical-architecture-decisions-v2.md`
 - See `research/shared/402claw-complete-research-package.md` for earlier competitor baseline.
