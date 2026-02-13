@@ -127,3 +127,112 @@ test("wrap command stores secret header references without plaintext values", ()
   assert.equal(payload.tenant.proxy.injectHeaderSecrets.Authorization, "OPENAI_API_KEY");
   assert.equal(payload.tenant.proxy.injectHeaders?.Authorization, undefined);
 });
+
+test("storage migrate json->d1 and rollback commands work end-to-end", () => {
+  const cwd = makeTempDir();
+  const source = path.join(cwd, "dataset.json");
+  const d1Path = path.join(cwd, ".402claw", "control-plane.db");
+  fs.writeFileSync(source, JSON.stringify([{ id: 1, name: "alpha" }]), "utf8");
+
+  runCli([
+    "deploy",
+    source,
+    "--tenant",
+    "migrate-tenant",
+    "--price",
+    "0.01",
+  ], { cwd });
+
+  runCli([
+    "user-create",
+    "--user",
+    "alice",
+    "--name",
+    "Alice",
+  ], { cwd });
+
+  const dryRun = runCli([
+    "storage-migrate-json-to-d1",
+    "--storage-path",
+    d1Path,
+  ], { cwd });
+  assert.equal(dryRun.ok, true);
+  assert.equal(dryRun.mode, "dry-run");
+  assert.equal(dryRun.summary.registryTenants, 1);
+  assert.equal(dryRun.summary.users, 1);
+
+  const execute = runCli([
+    "storage-migrate-json-to-d1",
+    "--storage-path",
+    d1Path,
+    "--execute",
+  ], { cwd });
+  assert.equal(execute.ok, true);
+  assert.equal(execute.mode, "execute");
+  assert.ok(fs.existsSync(path.join(execute.backup.dir, "registry.json")));
+
+  const d1Tenants = runCli([
+    "list",
+    "--storage-backend",
+    "d1",
+    "--storage-path",
+    d1Path,
+  ], { cwd });
+  assert.equal(d1Tenants.total, 1);
+  assert.equal(d1Tenants.tenants[0].slug, "migrate-tenant");
+
+  const d1AuthList = runCli([
+    "auth-list",
+    "--storage-backend",
+    "d1",
+    "--storage-path",
+    d1Path,
+  ], { cwd });
+  assert.equal(d1AuthList.users.length, 1);
+  assert.equal(d1AuthList.users[0].userId, "alice");
+
+  runCli([
+    "deploy",
+    source,
+    "--tenant",
+    "temp-tenant",
+    "--price",
+    "0.01",
+    "--storage-backend",
+    "d1",
+    "--storage-path",
+    d1Path,
+  ], { cwd });
+
+  const rollbackDryRun = runCli([
+    "storage-rollback-d1",
+    "--backup-dir",
+    execute.backup.dir,
+    "--storage-path",
+    d1Path,
+  ], { cwd });
+  assert.equal(rollbackDryRun.ok, true);
+  assert.equal(rollbackDryRun.mode, "dry-run");
+  assert.equal(rollbackDryRun.summary.registryTenants, 1);
+
+  const rollbackExecute = runCli([
+    "storage-rollback-d1",
+    "--backup-dir",
+    execute.backup.dir,
+    "--storage-path",
+    d1Path,
+    "--execute",
+  ], { cwd });
+  assert.equal(rollbackExecute.ok, true);
+  assert.equal(rollbackExecute.mode, "execute");
+
+  const afterRollback = runCli([
+    "list",
+    "--storage-backend",
+    "d1",
+    "--storage-path",
+    d1Path,
+  ], { cwd });
+  assert.equal(afterRollback.total, 1);
+  assert.equal(afterRollback.tenants[0].slug, "migrate-tenant");
+});

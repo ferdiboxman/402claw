@@ -127,7 +127,12 @@ export function defaultControlPlanePath(cwd = process.cwd()) {
   return path.resolve(cwd, ".402claw", "control-plane.json");
 }
 
-export function loadControlPlane(controlPlanePath) {
+export function loadControlPlane(controlPlanePath, options = {}) {
+  const storage = options?.storage;
+  if (storage && typeof storage.loadControlPlane === "function") {
+    return storage.loadControlPlane({ controlPlanePath });
+  }
+
   const absolute = path.resolve(controlPlanePath);
   if (!fs.existsSync(absolute)) {
     return {
@@ -159,7 +164,12 @@ export function loadControlPlane(controlPlanePath) {
   };
 }
 
-export function saveControlPlane(controlPlanePath, state) {
+export function saveControlPlane(controlPlanePath, state, options = {}) {
+  const storage = options?.storage;
+  if (storage && typeof storage.saveControlPlane === "function") {
+    return storage.saveControlPlane({ controlPlanePath, state });
+  }
+
   const absolute = path.resolve(controlPlanePath);
   ensureDir(absolute);
   const next = {
@@ -180,9 +190,10 @@ export function ensureUser({
   controlPlanePath = defaultControlPlanePath(),
   userId,
   displayName,
+  storage,
 } = {}) {
   const normalizedUserId = normalizeUserId(userId);
-  const state = loadControlPlane(controlPlanePath);
+  const state = loadControlPlane(controlPlanePath, { storage });
   let user = state.users.find((item) => item.userId === normalizedUserId);
 
   if (!user) {
@@ -194,11 +205,11 @@ export function ensureUser({
       updatedAt: nowIso(),
     };
     state.users.push(user);
-    saveControlPlane(controlPlanePath, state);
+    saveControlPlane(controlPlanePath, state, { storage });
   } else if (displayName && user.displayName !== displayName) {
     user.displayName = String(displayName);
     user.updatedAt = nowIso();
-    saveControlPlane(controlPlanePath, state);
+    saveControlPlane(controlPlanePath, state, { storage });
   }
 
   return user;
@@ -209,9 +220,10 @@ export function createApiKeyForUser({
   userId,
   displayName,
   scopes = ["*"],
+  storage,
 } = {}) {
-  const user = ensureUser({ controlPlanePath, userId, displayName });
-  const state = loadControlPlane(controlPlanePath);
+  const user = ensureUser({ controlPlanePath, userId, displayName, storage });
+  const state = loadControlPlane(controlPlanePath, { storage });
 
   const apiKey = `claw_${crypto.randomBytes(18).toString("base64url")}`;
   const record = {
@@ -226,7 +238,7 @@ export function createApiKeyForUser({
   };
 
   state.apiKeys.push(record);
-  saveControlPlane(controlPlanePath, state);
+  saveControlPlane(controlPlanePath, state, { storage });
 
   return {
     apiKey,
@@ -243,16 +255,17 @@ export function createApiKeyForUser({
 export function revokeApiKey({
   controlPlanePath = defaultControlPlanePath(),
   keyId,
+  storage,
 } = {}) {
   assertNonEmpty(keyId, "keyId");
-  const state = loadControlPlane(controlPlanePath);
+  const state = loadControlPlane(controlPlanePath, { storage });
   const key = state.apiKeys.find((item) => item.keyId === keyId);
   if (!key) {
     throw new Error(`api key not found: ${keyId}`);
   }
   if (!key.revokedAt) {
     key.revokedAt = nowIso();
-    saveControlPlane(controlPlanePath, state);
+    saveControlPlane(controlPlanePath, state, { storage });
   }
   return {
     keyId: key.keyId,
@@ -265,8 +278,8 @@ function activeApiKeys(state) {
   return (state.apiKeys || []).filter((key) => !key.revokedAt);
 }
 
-export function isAuthConfigured(controlPlanePath = defaultControlPlanePath()) {
-  const state = loadControlPlane(controlPlanePath);
+export function isAuthConfigured(controlPlanePath = defaultControlPlanePath(), options = {}) {
+  const state = loadControlPlane(controlPlanePath, options);
   return activeApiKeys(state).length > 0;
 }
 
@@ -274,9 +287,10 @@ export function authenticateApiKey({
   controlPlanePath = defaultControlPlanePath(),
   apiKey,
   requiredScope = null,
+  storage,
 } = {}) {
   assertNonEmpty(apiKey, "apiKey");
-  const state = loadControlPlane(controlPlanePath);
+  const state = loadControlPlane(controlPlanePath, { storage });
   const digest = hashApiKey(apiKey);
   const key = state.apiKeys.find((item) => item.keyHash === digest && !item.revokedAt);
   if (!key) {
@@ -291,7 +305,7 @@ export function authenticateApiKey({
   }
 
   key.lastUsedAt = nowIso();
-  saveControlPlane(controlPlanePath, state);
+  saveControlPlane(controlPlanePath, state, { storage });
 
   return {
     user: {
@@ -307,13 +321,13 @@ export function authenticateApiKey({
   };
 }
 
-export function listUsers(controlPlanePath = defaultControlPlanePath()) {
-  const state = loadControlPlane(controlPlanePath);
+export function listUsers(controlPlanePath = defaultControlPlanePath(), options = {}) {
+  const state = loadControlPlane(controlPlanePath, options);
   return state.users;
 }
 
-export function listApiKeys(controlPlanePath = defaultControlPlanePath()) {
-  const state = loadControlPlane(controlPlanePath);
+export function listApiKeys(controlPlanePath = defaultControlPlanePath(), options = {}) {
+  const state = loadControlPlane(controlPlanePath, options);
   return state.apiKeys.map((key) => ({
     keyId: key.keyId,
     userId: key.userId,
@@ -333,9 +347,10 @@ export function appendAuditEvent({
   targetId,
   ok = true,
   metadata = {},
+  storage,
 } = {}) {
   assertNonEmpty(action, "action");
-  const state = loadControlPlane(controlPlanePath);
+  const state = loadControlPlane(controlPlanePath, { storage });
   const entry = {
     auditId: uid("audit"),
     at: nowIso(),
@@ -348,7 +363,7 @@ export function appendAuditEvent({
   };
 
   state.auditEvents.push(entry);
-  saveControlPlane(controlPlanePath, state);
+  saveControlPlane(controlPlanePath, state, { storage });
   return entry;
 }
 
@@ -357,8 +372,9 @@ export function listAuditEvents({
   limit = 50,
   actorUserId,
   action,
+  storage,
 } = {}) {
-  const state = loadControlPlane(controlPlanePath);
+  const state = loadControlPlane(controlPlanePath, { storage });
   const max = Math.max(1, Number(limit || 50));
   let entries = state.auditEvents || [];
   if (actorUserId) {
@@ -377,6 +393,7 @@ export function recordTenantRevenue({
   grossUsd,
   source = "manual",
   externalId,
+  storage,
 } = {}) {
   assertNonEmpty(tenantSlug, "tenantSlug");
   assertNonEmpty(ownerUserId, "ownerUserId");
@@ -385,7 +402,7 @@ export function recordTenantRevenue({
     throw new Error("grossUsd must be positive");
   }
 
-  const state = loadControlPlane(controlPlanePath);
+  const state = loadControlPlane(controlPlanePath, { storage });
   const entry = {
     ledgerId: uid("rev"),
     type: "credit",
@@ -397,7 +414,7 @@ export function recordTenantRevenue({
     externalId: externalId ? String(externalId) : null,
   };
   state.ledger.push(entry);
-  saveControlPlane(controlPlanePath, state);
+  saveControlPlane(controlPlanePath, state, { storage });
   return entry;
 }
 
@@ -407,6 +424,7 @@ export function requestWithdrawal({
   ownerUserId,
   amountUsd,
   destination,
+  storage,
 } = {}) {
   assertNonEmpty(tenantSlug, "tenantSlug");
   assertNonEmpty(ownerUserId, "ownerUserId");
@@ -417,7 +435,7 @@ export function requestWithdrawal({
     throw new Error("amountUsd must be positive");
   }
 
-  const state = loadControlPlane(controlPlanePath);
+  const state = loadControlPlane(controlPlanePath, { storage });
   const balances = computeBalancesFromLedger(state.ledger);
   const balance = balances[tenantSlug] || {
     availableUsd: 0,
@@ -466,7 +484,7 @@ export function requestWithdrawal({
 
   state.ledger.push(ledgerEntry);
   state.withdrawals.push(withdrawal);
-  saveControlPlane(controlPlanePath, state);
+  saveControlPlane(controlPlanePath, state, { storage });
 
   return withdrawal;
 }
@@ -474,9 +492,10 @@ export function requestWithdrawal({
 export function getTenantBalance({
   controlPlanePath = defaultControlPlanePath(),
   tenantSlug,
+  storage,
 } = {}) {
   assertNonEmpty(tenantSlug, "tenantSlug");
-  const state = loadControlPlane(controlPlanePath);
+  const state = loadControlPlane(controlPlanePath, { storage });
   const balances = computeBalancesFromLedger(state.ledger);
   return (
     balances[tenantSlug] || {
@@ -494,8 +513,9 @@ export function listWithdrawals({
   controlPlanePath = defaultControlPlanePath(),
   tenantSlug,
   ownerUserId,
+  storage,
 } = {}) {
-  const state = loadControlPlane(controlPlanePath);
+  const state = loadControlPlane(controlPlanePath, { storage });
   let rows = state.withdrawals || [];
 
   if (tenantSlug) {
@@ -508,4 +528,3 @@ export function listWithdrawals({
 
   return rows.slice().reverse();
 }
-

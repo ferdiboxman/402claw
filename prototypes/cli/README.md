@@ -111,6 +111,14 @@ node src/index.js withdraw --tenant acme --amount 5 --to 0xabc123 --api-key <ali
 
 # Audit log
 node src/index.js audit-list --limit 25
+
+# Storage migration (JSON -> D1 adapter backend)
+node src/index.js storage-migrate-json-to-d1 --storage-path ./.402claw/control-plane.db
+node src/index.js storage-migrate-json-to-d1 --storage-path ./.402claw/control-plane.db --execute
+
+# Roll back D1 storage from a migration backup snapshot
+node src/index.js storage-rollback-d1 --backup-dir ./.402claw/backups/json-to-d1-<timestamp>
+node src/index.js storage-rollback-d1 --backup-dir ./.402claw/backups/json-to-d1-<timestamp> --execute
 ```
 
 ## Registry format
@@ -134,6 +142,32 @@ Persistent multi-user control plane is stored at `.402claw/control-plane.json` b
 - append-only audit events
 
 If at least one active API key exists, mutating commands require `--api-key` (or `CLAW_API_KEY`).
+
+## Storage backends
+
+CLI supports two storage backends:
+- `json` (default): file-backed storage (`.402claw/tenants.json`, `.402claw/control-plane.json`)
+- `d1`: sqlite-backed D1 adapter (for local/prototype parity before remote D1 wiring)
+
+Global storage flags:
+- `--storage-backend json|d1`
+- `--storage-path <path-to-sqlite-db>` (used by `d1` backend)
+- `--storage-migration-sql <path-to-sql>`
+
+Examples:
+
+```bash
+# Read tenants from D1 adapter storage
+node src/index.js list --storage-backend d1 --storage-path ./.402claw/control-plane.db
+
+# Write deploys to D1 adapter storage
+node src/index.js deploy ../x402-server/data/sample.csv \
+  --tenant acme \
+  --plan pro \
+  --price 0.002 \
+  --storage-backend d1 \
+  --storage-path ./.402claw/control-plane.db
+```
 
 ## Tests
 

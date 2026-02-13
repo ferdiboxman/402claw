@@ -720,8 +720,8 @@ export function appendDeploymentState(statePath, deployment) {
   return saveDeploymentState(statePath, state);
 }
 
-export function buildTenantDirectoryJson(registryPath) {
-  const registry = loadRegistry(registryPath);
+export function buildTenantDirectoryJson(registryPath, options = {}) {
+  const registry = loadRegistry(registryPath, options);
   const directory = toTenantDirectory(registry);
   return {
     registry,
@@ -891,6 +891,7 @@ export function planCloudflareDispatcherDeploy({
   usageKvNamespaceId,
   rateKvNamespaceId,
   compatibilityDate,
+  storage,
 } = {}) {
   assertNonEmpty(registryPath, "registryPath");
   assertNonEmpty(scriptPath, "scriptPath");
@@ -903,7 +904,7 @@ export function planCloudflareDispatcherDeploy({
 
   const scriptContent = fs.readFileSync(absoluteScriptPath, "utf8");
   const additionalModules = collectLocalModuleGraph(absoluteScriptPath);
-  const directoryInfo = buildTenantDirectoryJson(registryPath);
+  const directoryInfo = buildTenantDirectoryJson(registryPath, { storage });
 
   const upload = createDispatcherUploadBody({
     scriptContent,
@@ -943,10 +944,11 @@ export function planCloudflareTenantDeploy({
   apiToken,
   dispatchNamespace,
   compatibilityDate = DEFAULT_COMPATIBILITY_DATE,
+  storage,
 } = {}) {
   assertNonEmpty(registryPath, "registryPath");
   const slug = assertTenantSlug(tenant);
-  const registry = loadRegistry(registryPath);
+  const registry = loadRegistry(registryPath, { storage });
   const tenantRecord = registry.tenants.find((item) => item.slug === slug);
 
   if (!tenantRecord) {
@@ -1066,6 +1068,7 @@ export async function deployCloudflareDispatcher({
   execute = false,
   fetchImpl = fetch,
   statePath = defaultDeploymentStatePath(),
+  storage,
 } = {}) {
   const plan = planCloudflareDispatcherDeploy({
     registryPath,
@@ -1077,6 +1080,7 @@ export async function deployCloudflareDispatcher({
     usageKvNamespaceId,
     rateKvNamespaceId,
     compatibilityDate,
+    storage,
   });
 
   if (!execute) {
@@ -1160,6 +1164,7 @@ export async function deployCloudflareTenantWorker({
   execute = false,
   fetchImpl = fetch,
   statePath = defaultDeploymentStatePath(),
+  storage,
 } = {}) {
   const plan = planCloudflareTenantDeploy({
     registryPath,
@@ -1169,6 +1174,7 @@ export async function deployCloudflareTenantWorker({
     apiToken,
     dispatchNamespace,
     compatibilityDate,
+    storage,
   });
 
   const requestedSecretNames = uniqueStringList([

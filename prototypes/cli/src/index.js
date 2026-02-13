@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -32,6 +33,11 @@ import {
   revokeApiKey,
   requestWithdrawal,
 } from "./control-plane.js";
+import {
+  createStorage,
+  defaultD1StoragePath,
+  resolveStorageConfig,
+} from "./storage/index.js";
 
 const COMMAND_SCOPE = Object.freeze({
   deploy: "deploy",
@@ -39,6 +45,8 @@ const COMMAND_SCOPE = Object.freeze({
   "cloudflare-deploy-dispatcher": "deploy",
   "cloudflare-rollback-dispatcher": "deploy",
   "cloudflare-deploy-tenant": "deploy",
+  "storage-migrate-json-to-d1": "admin",
+  "storage-rollback-d1": "admin",
   "revenue-credit": "ledger:write",
   withdraw: "withdraw",
   "user-create": "admin",
@@ -52,6 +60,8 @@ const AUDIT_ACTION = Object.freeze({
   "cloudflare-deploy-dispatcher": "cloudflare_dispatcher_deploy",
   "cloudflare-rollback-dispatcher": "cloudflare_dispatcher_rollback",
   "cloudflare-deploy-tenant": "cloudflare_tenant_deploy",
+  "storage-migrate-json-to-d1": "storage_migrate_json_to_d1",
+  "storage-rollback-d1": "storage_rollback_d1",
   "revenue-credit": "tenant_revenue_credit",
   withdraw: "tenant_withdrawal",
   "user-create": "user_create",
@@ -106,6 +116,36 @@ function resolveRegistryPath(flags) {
 
 function resolveControlPlanePath(flags) {
   return flags["control-plane"] || defaultControlPlanePath();
+}
+
+function resolveStorageContext(flags) {
+  const config = resolveStorageConfig(flags);
+  const storage = createStorage({
+    backend: config.backend,
+    d1Path: config.d1Path,
+    migrationSqlPath: config.migrationSqlPath,
+  });
+
+  return {
+    storage,
+    storageConfig: config,
+  };
+}
+
+function ensureDir(filePath) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function writeJsonFile(filePath, payload) {
+  const absolute = path.resolve(filePath);
+  ensureDir(absolute);
+  fs.writeFileSync(absolute, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return absolute;
+}
+
+function defaultMigrationBackupDir(cwd = process.cwd()) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return path.resolve(cwd, ".402claw", "backups", `json-to-d1-${stamp}`);
 }
 
 function boolFlag(value, fallback = true) {
@@ -387,6 +427,10 @@ Cloudflare commands:
   cloudflare-rollback-dispatcher [--deployment-id <id>] [--script-name <name>] --account-id <id> --api-token <token> [--state-path <path>] [--workers-dev <true|false>] [--execute]
   cloudflare-deploy-tenant --tenant <slug> [--script-name <name>] [--secret <ENV_NAME>] --account-id <id> --api-token <token> [--dispatch-namespace <name>] [--registry <path>] [--state-path <path>] [--compat-date <YYYY-MM-DD>] [--workers-dev <true|false>] [--execute]
 
+Storage commands:
+  storage-migrate-json-to-d1 [--registry <path>] [--control-plane <path>] [--storage-path <path>] [--backup-dir <path>] [--execute]
+  storage-rollback-d1 --backup-dir <path> [--storage-path <path>] [--execute]
+
 Auth + audit commands:
   user-create --user <id> [--name <display-name>] [--control-plane <path>]
   auth-create-key --user <id> [--name <display-name>] [--scope <scope>] [--control-plane <path>]
@@ -403,6 +447,9 @@ Payout commands:
 Global options:
   --api-key <key>            API key for authenticated commands
   --control-plane <path>     Path to persistent multi-user control plane JSON
+  --storage-backend <type>   Storage backend: json (default) or d1
+  --storage-path <path>      D1 sqlite path for storage backend d1 (default: ${defaultD1StoragePath()})
+  --storage-migration-sql    Path to D1 migration SQL file
 `);
 }
 
@@ -425,6 +472,9 @@ function buildAuditTarget(command, flags) {
   if (command === "revenue-credit" || command === "withdraw") {
     return { targetType: "tenant", targetId: String(flags.tenant || "unknown") };
   }
+  if (command === "storage-migrate-json-to-d1" || command === "storage-rollback-d1") {
+    return { targetType: "storage", targetId: String(flags["storage-path"] || "d1") };
+  }
   return { targetType: "unknown", targetId: "unknown" };
 }
 
@@ -442,6 +492,7 @@ function buildAuditMetadata({ command, flags, result, errorMessage }) {
 function maybeAppendAudit({
   command,
   controlPlanePath,
+  storage,
   actorUserId,
   flags,
   ok,
@@ -455,6 +506,7 @@ function maybeAppendAudit({
     const target = buildAuditTarget(command, flags || {});
     appendAuditEvent({
       controlPlanePath,
+      storage,
       actorUserId: actorUserId || "anonymous",
       action,
       targetType: target.targetType,
@@ -476,13 +528,14 @@ function authenticateForCommand({
   command,
   flags,
   controlPlanePath,
+  storage,
 } = {}) {
   const requiredScope = COMMAND_SCOPE[command];
   if (!requiredScope) {
-    return { actorUser: null, authConfigured: isAuthConfigured(controlPlanePath) };
+    return { actorUser: null, authConfigured: isAuthConfigured(controlPlanePath, { storage }) };
   }
 
-  const authConfigured = isAuthConfigured(controlPlanePath);
+  const authConfigured = isAuthConfigured(controlPlanePath, { storage });
   if (!authConfigured && BOOTSTRAP_COMMANDS.has(command)) {
     return { actorUser: null, authConfigured: false };
   }
@@ -498,6 +551,7 @@ function authenticateForCommand({
 
   const auth = authenticateApiKey({
     controlPlanePath,
+    storage,
     apiKey,
     requiredScope,
   });
@@ -512,6 +566,7 @@ async function run() {
   const { command, positionals, flags } = parseArgs(process.argv);
   const controlPlanePath = resolveControlPlanePath(flags);
   const registryPath = resolveRegistryPath(flags);
+  const { storage, storageConfig } = resolveStorageContext(flags);
 
   if (command === "help" || command === "--help" || command === "-h") {
     printUsage();
@@ -526,6 +581,7 @@ async function run() {
       command,
       flags,
       controlPlanePath,
+      storage,
     });
     actorUser = authContext.actorUser;
 
@@ -541,7 +597,7 @@ async function run() {
         throw new Error("deploy requires --tenant");
       }
 
-      const existing = getTenant(registryPath, tenant);
+      const existing = getTenant(registryPath, tenant, { storage });
       const ownerUserId = actorUser?.userId || flags.owner || existing?.ownerUserId || "anonymous";
 
       if (existing?.ownerUserId && actorUser && existing.ownerUserId !== actorUser.userId) {
@@ -576,7 +632,7 @@ async function run() {
         deployInput.datasetPath = sourcePath;
       }
 
-      const result = upsertDeployment(deployInput);
+      const result = upsertDeployment({ ...deployInput, storage });
 
       let published = null;
       const shouldPublish = flags.publish === undefined
@@ -598,6 +654,7 @@ async function run() {
           secrets: secretPlan.secrets,
           secretNames: secretPlan.secretNames,
           statePath: flags["state-path"] || defaultDeploymentStatePath(),
+          storage,
         });
 
         published = {
@@ -639,6 +696,7 @@ async function run() {
           tenant: result.tenant.slug,
           ownerUserId,
         },
+        storage,
       });
       return;
     }
@@ -653,7 +711,7 @@ async function run() {
         throw new Error("wrap requires --tenant");
       }
 
-      const existing = getTenant(registryPath, tenant);
+      const existing = getTenant(registryPath, tenant, { storage });
       const ownerUserId = actorUser?.userId || flags.owner || existing?.ownerUserId || "anonymous";
       if (existing?.ownerUserId && actorUser && existing.ownerUserId !== actorUser.userId) {
         throw new Error(`tenant owned by another user: ${existing.ownerUserId}`);
@@ -690,6 +748,7 @@ async function run() {
         proxy,
         rateLimit,
         usageLimit,
+        storage,
       });
 
       let published = null;
@@ -715,6 +774,7 @@ async function run() {
           secrets: secretPlan.secrets,
           secretNames: secretPlan.secretNames,
           statePath: flags["state-path"] || defaultDeploymentStatePath(),
+          storage,
         });
 
         published = {
@@ -755,12 +815,13 @@ async function run() {
           ownerUserId,
           upstream,
         },
+        storage,
       });
       return;
     }
 
     if (command === "list") {
-      const tenants = listTenants(registryPath);
+      const tenants = listTenants(registryPath, { storage });
       commandResult = { ok: true, registryPath, total: tenants.length, tenants };
       console.log(JSON.stringify(commandResult, null, 2));
       return;
@@ -772,7 +833,7 @@ async function run() {
         throw new Error("show requires tenant slug");
       }
 
-      const tenant = getTenant(registryPath, slug);
+      const tenant = getTenant(registryPath, slug, { storage });
       if (!tenant) {
         commandResult = { ok: false, error: "tenant_not_found", slug };
         console.log(JSON.stringify(commandResult, null, 2));
@@ -785,7 +846,7 @@ async function run() {
     }
 
     if (command === "export-tenant-directory") {
-      const registry = loadRegistry(registryPath);
+      const registry = loadRegistry(registryPath, { storage });
       const directory = toTenantDirectory(registry);
       commandResult = { ok: true, registryPath, directory };
       console.log(JSON.stringify(commandResult, null, 2));
@@ -806,6 +867,7 @@ async function run() {
         enableWorkersDev: boolFlag(flags["workers-dev"], true),
         execute: Boolean(flags.execute),
         statePath: flags["state-path"] || defaultDeploymentStatePath(),
+        storage,
       });
 
       commandResult = result;
@@ -820,6 +882,7 @@ async function run() {
           mode: result.mode,
           scriptName: result.plan?.scriptName || result.deployed?.scriptName,
         },
+        storage,
       });
       return;
     }
@@ -847,6 +910,7 @@ async function run() {
           mode: result.mode,
           deploymentId: result.rollback?.deploymentId || result.rollback?.targetDeploymentId,
         },
+        storage,
       });
       return;
     }
@@ -856,7 +920,7 @@ async function run() {
         throw new Error("cloudflare-deploy-tenant requires --tenant");
       }
 
-      const tenantRecord = getTenant(registryPath, flags.tenant);
+      const tenantRecord = getTenant(registryPath, flags.tenant, { storage });
       if (!tenantRecord) {
         throw new Error(`tenant not found: ${flags.tenant}`);
       }
@@ -883,6 +947,7 @@ async function run() {
         secrets: secretPlan.secrets,
         secretNames: secretPlan.secretNames,
         statePath: flags["state-path"] || defaultDeploymentStatePath(),
+        storage,
       });
 
       commandResult = result;
@@ -898,6 +963,201 @@ async function run() {
           tenant: flags.tenant,
           scriptName: result.tenantDeploy?.scriptName || result.deployed?.scriptName,
         },
+        storage,
+      });
+      return;
+    }
+
+    if (command === "storage-migrate-json-to-d1") {
+      const execute = Boolean(flags.execute);
+      const sourceStorage = createStorage({ backend: "json" });
+
+      const registryState = sourceStorage.loadRegistry({ registryPath });
+      const controlPlaneState = sourceStorage.loadControlPlane({ controlPlanePath });
+      const summary = {
+        registryTenants: registryState.tenants.length,
+        users: controlPlaneState.users.length,
+        apiKeys: controlPlaneState.apiKeys.length,
+        ledgerEntries: controlPlaneState.ledger.length,
+        withdrawals: controlPlaneState.withdrawals.length,
+        auditEvents: controlPlaneState.auditEvents.length,
+      };
+
+      if (!execute) {
+        commandResult = {
+          ok: true,
+          mode: "dry-run",
+          source: {
+            backend: "json",
+            registryPath,
+            controlPlanePath,
+          },
+          target: {
+            backend: "d1",
+            storagePath: flags["storage-path"] || storageConfig.d1Path,
+          },
+          summary,
+          next: "re-run with --execute to apply migration and create backup snapshot",
+        };
+        console.log(JSON.stringify(commandResult, null, 2));
+        return;
+      }
+
+      const backupDir = path.resolve(flags["backup-dir"] || defaultMigrationBackupDir());
+      const backupRegistryPath = writeJsonFile(path.join(backupDir, "registry.json"), registryState);
+      const backupControlPlanePath = writeJsonFile(
+        path.join(backupDir, "control-plane.json"),
+        controlPlaneState,
+      );
+      const backupMetaPath = writeJsonFile(path.join(backupDir, "metadata.json"), {
+        createdAt: new Date().toISOString(),
+        command: "storage-migrate-json-to-d1",
+        source: {
+          registryPath: path.resolve(registryPath),
+          controlPlanePath: path.resolve(controlPlanePath),
+        },
+        target: {
+          storagePath: path.resolve(flags["storage-path"] || storageConfig.d1Path),
+        },
+        summary,
+      });
+
+      const targetStorage = createStorage({
+        backend: "d1",
+        d1Path: flags["storage-path"] || storageConfig.d1Path,
+        migrationSqlPath: storageConfig.migrationSqlPath,
+      });
+
+      try {
+        targetStorage.saveRegistry({ registryPath, registry: registryState });
+        targetStorage.saveControlPlane({ controlPlanePath, state: controlPlaneState });
+      } finally {
+        if (typeof targetStorage.close === "function") {
+          targetStorage.close();
+        }
+      }
+
+      commandResult = {
+        ok: true,
+        mode: "execute",
+        target: {
+          backend: "d1",
+          storagePath: path.resolve(flags["storage-path"] || storageConfig.d1Path),
+        },
+        summary,
+        backup: {
+          dir: backupDir,
+          registryPath: backupRegistryPath,
+          controlPlanePath: backupControlPlanePath,
+          metadataPath: backupMetaPath,
+        },
+      };
+      console.log(JSON.stringify(commandResult, null, 2));
+      maybeAppendAudit({
+        command,
+        controlPlanePath,
+        storage,
+        actorUserId: actorUser?.userId || "system",
+        flags,
+        ok: true,
+        result: {
+          summary,
+          backupDir,
+        },
+      });
+      return;
+    }
+
+    if (command === "storage-rollback-d1") {
+      const backupDir = flags["backup-dir"];
+      if (!backupDir) {
+        throw new Error("storage-rollback-d1 requires --backup-dir");
+      }
+
+      const resolvedBackupDir = path.resolve(backupDir);
+      const backupRegistryPath = path.join(resolvedBackupDir, "registry.json");
+      const backupControlPlanePath = path.join(resolvedBackupDir, "control-plane.json");
+      if (!fs.existsSync(backupRegistryPath) || !fs.existsSync(backupControlPlanePath)) {
+        throw new Error("backup-dir must contain registry.json and control-plane.json");
+      }
+
+      const rollbackRegistry = JSON.parse(fs.readFileSync(backupRegistryPath, "utf8"));
+      const rollbackControlPlane = JSON.parse(fs.readFileSync(backupControlPlanePath, "utf8"));
+      const summary = {
+        registryTenants: Array.isArray(rollbackRegistry.tenants) ? rollbackRegistry.tenants.length : 0,
+        users: Array.isArray(rollbackControlPlane.users) ? rollbackControlPlane.users.length : 0,
+        apiKeys: Array.isArray(rollbackControlPlane.apiKeys) ? rollbackControlPlane.apiKeys.length : 0,
+        ledgerEntries: Array.isArray(rollbackControlPlane.ledger) ? rollbackControlPlane.ledger.length : 0,
+        withdrawals: Array.isArray(rollbackControlPlane.withdrawals) ? rollbackControlPlane.withdrawals.length : 0,
+        auditEvents: Array.isArray(rollbackControlPlane.auditEvents) ? rollbackControlPlane.auditEvents.length : 0,
+      };
+
+      const execute = Boolean(flags.execute);
+      if (!execute) {
+        commandResult = {
+          ok: true,
+          mode: "dry-run",
+          backupDir: resolvedBackupDir,
+          target: {
+            backend: "d1",
+            storagePath: path.resolve(flags["storage-path"] || storageConfig.d1Path),
+          },
+          summary,
+          next: "re-run with --execute to restore backup into D1 storage",
+        };
+        console.log(JSON.stringify(commandResult, null, 2));
+        return;
+      }
+
+      const targetStorage = createStorage({
+        backend: "d1",
+        d1Path: flags["storage-path"] || storageConfig.d1Path,
+        migrationSqlPath: storageConfig.migrationSqlPath,
+      });
+
+      const preRollbackDir = path.join(
+        resolvedBackupDir,
+        "rollback-before",
+        new Date().toISOString().replace(/[:.]/g, "-"),
+      );
+
+      try {
+        const currentRegistry = targetStorage.loadRegistry({ registryPath });
+        const currentControlPlane = targetStorage.loadControlPlane({ controlPlanePath });
+        writeJsonFile(path.join(preRollbackDir, "registry.json"), currentRegistry);
+        writeJsonFile(path.join(preRollbackDir, "control-plane.json"), currentControlPlane);
+
+        targetStorage.saveRegistry({ registryPath, registry: rollbackRegistry });
+        targetStorage.saveControlPlane({ controlPlanePath, state: rollbackControlPlane });
+      } finally {
+        if (typeof targetStorage.close === "function") {
+          targetStorage.close();
+        }
+      }
+
+      commandResult = {
+        ok: true,
+        mode: "execute",
+        backupDir: resolvedBackupDir,
+        restored: summary,
+        preRollbackSnapshot: preRollbackDir,
+        target: {
+          backend: "d1",
+          storagePath: path.resolve(flags["storage-path"] || storageConfig.d1Path),
+        },
+      };
+      console.log(JSON.stringify(commandResult, null, 2));
+      maybeAppendAudit({
+        command,
+        controlPlanePath,
+        storage,
+        actorUserId: actorUser?.userId || "system",
+        flags,
+        ok: true,
+        result: {
+          backupDir: resolvedBackupDir,
+          restored: summary,
+        },
       });
       return;
     }
@@ -910,6 +1170,7 @@ async function run() {
         controlPlanePath,
         userId: flags.user,
         displayName: flags.name,
+        storage,
       });
       commandResult = { ok: true, controlPlanePath, user };
       console.log(JSON.stringify(commandResult, null, 2));
@@ -920,6 +1181,7 @@ async function run() {
         flags,
         ok: true,
         result: { userId: user.userId },
+        storage,
       });
       return;
     }
@@ -933,6 +1195,7 @@ async function run() {
         userId: flags.user,
         displayName: flags.name,
         scopes: asArray(flags.scope),
+        storage,
       });
       commandResult = {
         ok: true,
@@ -948,6 +1211,7 @@ async function run() {
         flags,
         ok: true,
         result: { userId: result.keyRecord.userId, keyId: result.keyRecord.keyId },
+        storage,
       });
       return;
     }
@@ -959,6 +1223,7 @@ async function run() {
       const revoked = revokeApiKey({
         controlPlanePath,
         keyId: flags["key-id"],
+        storage,
       });
       commandResult = { ok: true, controlPlanePath, revoked };
       console.log(JSON.stringify(commandResult, null, 2));
@@ -969,6 +1234,7 @@ async function run() {
         flags,
         ok: true,
         result: { keyId: revoked.keyId },
+        storage,
       });
       return;
     }
@@ -977,8 +1243,8 @@ async function run() {
       commandResult = {
         ok: true,
         controlPlanePath,
-        users: listUsers(controlPlanePath),
-        apiKeys: listApiKeys(controlPlanePath),
+        users: listUsers(controlPlanePath, { storage }),
+        apiKeys: listApiKeys(controlPlanePath, { storage }),
       };
       console.log(JSON.stringify(commandResult, null, 2));
       return;
@@ -993,6 +1259,7 @@ async function run() {
           limit: Number(flags.limit || 50),
           actorUserId: flags.actor,
           action: flags.action,
+          storage,
         }),
       };
       console.log(JSON.stringify(commandResult, null, 2));
@@ -1003,7 +1270,7 @@ async function run() {
       if (!flags.tenant) {
         throw new Error("revenue-credit requires --tenant");
       }
-      const tenant = getTenant(registryPath, flags.tenant);
+      const tenant = getTenant(registryPath, flags.tenant, { storage });
       if (!tenant) {
         throw new Error(`tenant not found: ${flags.tenant}`);
       }
@@ -1018,13 +1285,14 @@ async function run() {
         grossUsd: parsePositiveAmount(flags.amount, "amount"),
         source: flags.source || "manual",
         externalId: flags["external-id"],
+        storage,
       });
 
       commandResult = {
         ok: true,
         controlPlanePath,
         credit: entry,
-        balance: getTenantBalance({ controlPlanePath, tenantSlug: tenant.slug }),
+        balance: getTenantBalance({ controlPlanePath, tenantSlug: tenant.slug, storage }),
       };
       console.log(JSON.stringify(commandResult, null, 2));
       maybeAppendAudit({
@@ -1034,6 +1302,7 @@ async function run() {
         flags,
         ok: true,
         result: { ledgerId: entry.ledgerId, tenant: tenant.slug, grossUsd: entry.grossUsd },
+        storage,
       });
       return;
     }
@@ -1048,6 +1317,7 @@ async function run() {
         balance: getTenantBalance({
           controlPlanePath,
           tenantSlug: flags.tenant,
+          storage,
         }),
       };
       console.log(JSON.stringify(commandResult, null, 2));
@@ -1062,6 +1332,7 @@ async function run() {
           controlPlanePath,
           tenantSlug: flags.tenant,
           ownerUserId: flags.owner,
+          storage,
         }),
       };
       console.log(JSON.stringify(commandResult, null, 2));
@@ -1076,7 +1347,7 @@ async function run() {
         throw new Error("withdraw requires --to");
       }
 
-      const tenant = getTenant(registryPath, flags.tenant);
+      const tenant = getTenant(registryPath, flags.tenant, { storage });
       if (!tenant) {
         throw new Error(`tenant not found: ${flags.tenant}`);
       }
@@ -1090,13 +1361,14 @@ async function run() {
         ownerUserId: tenant.ownerUserId || actorUser?.userId || "anonymous",
         amountUsd: parsePositiveAmount(flags.amount, "amount"),
         destination: flags.to,
+        storage,
       });
 
       commandResult = {
         ok: true,
         controlPlanePath,
         withdrawal,
-        balance: getTenantBalance({ controlPlanePath, tenantSlug: tenant.slug }),
+        balance: getTenantBalance({ controlPlanePath, tenantSlug: tenant.slug, storage }),
       };
       console.log(JSON.stringify(commandResult, null, 2));
       maybeAppendAudit({
@@ -1111,6 +1383,7 @@ async function run() {
           requestedUsd: withdrawal.requestedUsd,
           netPayoutUsd: withdrawal.netPayoutUsd,
         },
+        storage,
       });
       return;
     }
@@ -1121,6 +1394,7 @@ async function run() {
     maybeAppendAudit({
       command,
       controlPlanePath,
+      storage,
       actorUserId: actorUser?.userId || "anonymous",
       flags,
       ok: false,

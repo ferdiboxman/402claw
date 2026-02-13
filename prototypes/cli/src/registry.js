@@ -363,7 +363,12 @@ export function normalizePlan(plan = "free") {
   return normalized;
 }
 
-export function loadRegistry(registryPath) {
+export function loadRegistry(registryPath, options = {}) {
+  const storage = options?.storage;
+  if (storage && typeof storage.loadRegistry === "function") {
+    return storage.loadRegistry({ registryPath });
+  }
+
   const absolutePath = path.resolve(registryPath);
   if (!fs.existsSync(absolutePath)) {
     return {
@@ -382,7 +387,12 @@ export function loadRegistry(registryPath) {
   return parsed;
 }
 
-export function saveRegistry(registryPath, registry) {
+export function saveRegistry(registryPath, registry, options = {}) {
+  const storage = options?.storage;
+  if (storage && typeof storage.saveRegistry === "function") {
+    return storage.saveRegistry({ registryPath, registry });
+  }
+
   const absolutePath = path.resolve(registryPath);
   ensureDir(absolutePath);
 
@@ -477,6 +487,7 @@ export function upsertDeployment({
   workerName,
   limits,
   x402Enabled,
+  storage,
 } = {}) {
   if (!registryPath) {
     throw new Error("registryPath is required");
@@ -489,7 +500,7 @@ export function upsertDeployment({
     throw new Error("priceUsd must be a positive number");
   }
 
-  const registry = loadRegistry(registryPath);
+  const registry = loadRegistry(registryPath, { storage });
   const now = new Date().toISOString();
   const foundIndex = registry.tenants.findIndex((item) => item.slug === slug);
 
@@ -590,16 +601,16 @@ export function upsertDeployment({
     registry.tenants.push(entry);
   }
 
-  const saved = saveRegistry(registryPath, registry);
+  const saved = saveRegistry(registryPath, registry, { storage });
   return {
     registry: saved,
     tenant: entry,
   };
 }
 
-export function getTenant(registryPath, tenant) {
+export function getTenant(registryPath, tenant, options = {}) {
   const slug = slugifyTenant(tenant);
-  const registry = loadRegistry(registryPath);
+  const registry = loadRegistry(registryPath, options);
   return registry.tenants.find((item) => item.slug === slug) || null;
 }
 
@@ -662,7 +673,7 @@ export function toTenantDirectory(registry) {
   return { byHost, bySlug };
 }
 
-export function listTenants(registryPath) {
-  const registry = loadRegistry(registryPath);
+export function listTenants(registryPath, options = {}) {
+  const registry = loadRegistry(registryPath, options);
   return registry.tenants || [];
 }
