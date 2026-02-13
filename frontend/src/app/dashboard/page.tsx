@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +39,8 @@ import {
   Wallet,
   Zap,
 } from "lucide-react";
+import type { DeployIntentEntry } from "@/lib/deploy/intents";
+import type { DeployValidationIssue } from "@/lib/deploy/wizard";
 
 type TrendWindow = "today" | "week" | "overall";
 type TabKey = "today" | "week" | "all";
@@ -113,6 +115,23 @@ type DeployForm = {
   x402Enabled: boolean;
   publish: boolean;
   dispatchNamespace: string;
+};
+
+type DeployPreviewPayload = {
+  ok: boolean;
+  error?: string;
+  preview?: {
+    ok: boolean;
+    command: string;
+    errors: DeployValidationIssue[];
+  };
+  intent?: DeployIntentEntry;
+};
+
+type DeployIntentsPayload = {
+  ok: boolean;
+  error?: string;
+  intents?: DeployIntentEntry[];
 };
 
 const ALL_CATEGORIES = "All";
@@ -254,6 +273,12 @@ export default function Dashboard() {
   const [selectedApi, setSelectedApi] = useState<TrendingApi | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardCopied, setWizardCopied] = useState(false);
+  const [previewCommand, setPreviewCommand] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewMessage, setPreviewMessage] = useState<string | null>(null);
+  const [previewErrors, setPreviewErrors] = useState<DeployValidationIssue[]>([]);
+  const [recentIntents, setRecentIntents] = useState<DeployIntentEntry[]>([]);
+  const [recentIntentsLoading, setRecentIntentsLoading] = useState(false);
   const [endpointCopied, setEndpointCopied] = useState(false);
   const [form, setForm] = useState<DeployForm>(DEFAULT_DEPLOY_FORM);
   const [loading, setLoading] = useState(true);
@@ -295,7 +320,8 @@ export default function Dashboard() {
     });
   }, [activeSnapshot.topApis, category, search]);
 
-  const deployCommand = useMemo(() => buildDeployCommand(form), [form]);
+  const localDeployCommand = useMemo(() => buildDeployCommand(form), [form]);
+  const deployCommand = previewCommand || localDeployCommand;
 
   useEffect(() => {
     let cancelled = false;
@@ -362,6 +388,81 @@ export default function Dashboard() {
     };
   }, []);
 
+  const loadRecentIntents = useCallback(async () => {
+    setRecentIntentsLoading(true);
+    try {
+      const response = await fetch("/api/deploy/intents?limit=10", {
+        cache: "no-store",
+      });
+      const payload = (await response.json()) as DeployIntentsPayload;
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "deploy_intents_load_failed");
+      }
+      setRecentIntents(Array.isArray(payload.intents) ? payload.intents : []);
+    } catch (loadError) {
+      setPreviewMessage(loadError instanceof Error ? loadError.message : "deploy_intents_load_failed");
+    } finally {
+      setRecentIntentsLoading(false);
+    }
+  }, []);
+
+  const refreshDeployPreview = useCallback(async (nextForm: DeployForm) => {
+    setPreviewLoading(true);
+    setPreviewMessage(null);
+
+    try {
+      const response = await fetch("/api/deploy/preview", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(nextForm),
+      });
+      const payload = (await response.json()) as DeployPreviewPayload;
+      if (!response.ok || !payload.ok || !payload.preview) {
+        throw new Error(payload.error || "deploy_preview_failed");
+      }
+
+      setPreviewCommand(payload.preview.command || "");
+      setPreviewErrors(Array.isArray(payload.preview.errors) ? payload.preview.errors : []);
+      setPreviewMessage(
+        payload.preview.ok
+          ? "Server validation passed and deploy intent was logged."
+          : "Server validation found issues. Fix fields before running the command.",
+      );
+
+      if (payload.intent) {
+        const intent = payload.intent;
+        setRecentIntents((current) => {
+          const deduped = current.filter((item) => item.intentId !== intent.intentId);
+          return [intent, ...deduped].slice(0, 10);
+        });
+      }
+    } catch (previewError) {
+      setPreviewCommand("");
+      setPreviewErrors([]);
+      setPreviewMessage(previewError instanceof Error ? previewError.message : "deploy_preview_failed");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!wizardOpen) return;
+    loadRecentIntents().catch(() => {});
+  }, [wizardOpen, loadRecentIntents]);
+
+  useEffect(() => {
+    if (!wizardOpen) return;
+    const timer = window.setTimeout(() => {
+      refreshDeployPreview(form).catch(() => {});
+    }, 220);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [wizardOpen, form, refreshDeployPreview]);
+
   const activityRows = useMemo(() => {
     return activeSnapshot.topApis.slice(0, 8).map((api, index) => {
       const minutesAgo = 2 + (index * 3);
@@ -383,6 +484,7 @@ export default function Dashboard() {
   };
 
   const copyWizardCommand = async () => {
+    if (!deployCommand) return;
     await navigator.clipboard.writeText(deployCommand);
     setWizardCopied(true);
     window.setTimeout(() => setWizardCopied(false), 1500);
@@ -877,9 +979,17 @@ export default function Dashboard() {
             <Field label="Generated command">
               <div className="space-y-2">
                 <pre className="overflow-x-auto rounded-lg border border-border bg-muted/30 p-3 text-xs leading-5">
-                  {deployCommand}
+                  {deployCommand || "No command preview available yet."}
                 </pre>
                 <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => refreshDeployPreview(form)}
+                    disabled={previewLoading}
+                  >
+                    {previewLoading ? "Validating..." : "Server Validate"}
+                  </Button>
                   <Button size="sm" onClick={copyWizardCommand} className="gap-2">
                     {wizardCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                     {wizardCopied ? "Copied" : "Copy command"}
@@ -890,11 +1000,69 @@ export default function Dashboard() {
                     onClick={() => {
                       setForm(DEFAULT_DEPLOY_FORM);
                       setWizardCopied(false);
+                      setPreviewErrors([]);
+                      setPreviewMessage(null);
                     }}
                   >
                     Reset
                   </Button>
                 </div>
+              </div>
+            </Field>
+
+            {previewErrors.length > 0 ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+                <div className="mb-2 font-medium">Validation issues</div>
+                <div className="space-y-1">
+                  {previewErrors.map((issue, index) => (
+                    <div key={`${issue.field}-${index}`}>
+                      <code>{issue.field}</code>: {issue.message}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {previewMessage ? (
+              <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+                {previewMessage}
+              </div>
+            ) : null}
+
+            <Field label="Recent deploy intents">
+              <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Server-side audit trail (session scoped)</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => loadRecentIntents()}
+                    disabled={recentIntentsLoading}
+                  >
+                    {recentIntentsLoading ? "Refreshing..." : "Refresh"}
+                  </Button>
+                </div>
+                {recentIntents.length === 0 ? (
+                  <div className="text-muted-foreground">No intents logged yet for this wallet session.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {recentIntents.map((intent) => (
+                      <div key={intent.intentId} className="rounded border border-border bg-background/60 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-mono">
+                            {intent.mode} {intent.tenant || "(tenant missing)"}
+                          </div>
+                          <Badge variant={intent.valid ? "secondary" : "outline"}>
+                            {intent.valid ? "valid" : "invalid"}
+                          </Badge>
+                        </div>
+                        <div className="mt-1 text-muted-foreground">
+                          {new Date(intent.createdAt).toLocaleTimeString()} • {intent.publish ? "publish" : "no publish"} • ${intent.priceUsd || "0"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </Field>
 

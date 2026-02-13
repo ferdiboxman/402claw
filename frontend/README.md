@@ -47,6 +47,9 @@ CLAWR_ANALYTICS_BASE_URL=https://your-dispatcher.workers.dev
 - Includes a "Deploy API Wizard" that generates valid local CLI commands for:
   - `deploy` (dataset/function)
   - `wrap` (proxy)
+- Uses authenticated server-side deploy preview + intent logging routes:
+  - `POST /api/deploy/preview`
+  - `GET /api/deploy/intents`
 
 The generated commands target:
 
