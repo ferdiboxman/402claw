@@ -3,10 +3,17 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createStorage } from "../src/storage/index.js";
 
+const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const D1_MIGRATION_PATH = path.resolve(
-  "/Users/Shared/Projects/402claw/prototypes/csv-api/migrations/0001_initial.sql",
+  TEST_DIR,
+  "..",
+  "..",
+  "csv-api",
+  "migrations",
+  "0001_initial.sql",
 );
 
 function makeTempDir() {

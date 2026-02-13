@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SCHEMA_PATH = path.resolve(
-  "/Users/Shared/Projects/402claw/prototypes/csv-api/migrations/0001_initial.sql",
-);
+const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SCHEMA_PATH = path.resolve(TEST_DIR, "..", "migrations", "0001_initial.sql");
 
 function readSchema() {
   return fs.readFileSync(SCHEMA_PATH, "utf8");
@@ -63,9 +63,7 @@ test("D1 schema includes required columns per table", () => {
 });
 
 test("wrangler example documents CONTROL_DB D1 binding", () => {
-  const wranglerExamplePath = path.resolve(
-    "/Users/Shared/Projects/402claw/prototypes/csv-api/wrangler.example.toml",
-  );
+  const wranglerExamplePath = path.resolve(TEST_DIR, "..", "wrangler.example.toml");
   const wranglerExample = fs.readFileSync(wranglerExamplePath, "utf8");
 
   assert.match(wranglerExample, /\[\[d1_databases\]\]/i);

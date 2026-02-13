@@ -4,8 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const CSV_API_DIR = "/Users/Shared/Projects/402claw/prototypes/csv-api";
+const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
+const CSV_API_DIR = path.resolve(TEST_DIR, "..");
 const WRANGLER_CONFIG = path.join(CSV_API_DIR, "wrangler.d1.local.toml");
 const MIGRATION_SQL = path.join(CSV_API_DIR, "migrations/0001_initial.sql");
 

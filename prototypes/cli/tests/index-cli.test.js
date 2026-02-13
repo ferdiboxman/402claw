@@ -4,11 +4,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { Wallet } from "ethers";
 
-const CLI_ENTRY = path.resolve(
-  "/Users/Shared/Projects/402claw/prototypes/cli/src/index.js",
-);
+const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
+const CLI_ENTRY = path.resolve(TEST_DIR, "..", "src", "index.js");
 
 function makeTempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "402claw-cli-index-test-"));
