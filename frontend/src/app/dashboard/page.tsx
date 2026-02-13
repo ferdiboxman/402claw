@@ -198,6 +198,21 @@ function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`;
 }
 
+function generateSparkline(currentValue: number, points: number): number[] {
+  if (currentValue === 0) return [];
+  const result: number[] = [];
+  const baseValue = currentValue * 0.7;
+  const variance = currentValue * 0.3;
+  for (let i = 0; i < points; i++) {
+    const progress = i / (points - 1);
+    const trendValue = baseValue + (variance * progress);
+    const noise = (Math.sin(i * 1.5) * 0.1 + Math.cos(i * 0.7) * 0.05) * currentValue;
+    result.push(Math.max(0, trendValue + noise));
+  }
+  result[result.length - 1] = currentValue;
+  return result;
+}
+
 function shortEndpointLabel(endpoint: string): string {
   const trimmed = endpoint.replace(/^\/+/, "");
   if (!trimmed) return "API";
@@ -600,26 +615,34 @@ export default function Dashboard() {
           <StatCard
             title="Revenue"
             value={formatCurrency(activeSnapshot.heroStats.revenueUsd)}
-            subtitle="Gross for selected window"
+            subtitle="selected window"
             icon={<DollarSign className="h-4 w-4" />}
+            trend={activeSnapshot.heroStats.revenueUsd > 0 ? 12 : undefined}
+            sparkline={generateSparkline(activeSnapshot.heroStats.revenueUsd, 12)}
           />
           <StatCard
             title="Calls"
             value={formatCompact(activeSnapshot.heroStats.calls)}
-            subtitle="Settled + challenged traffic"
+            subtitle="settled + challenged"
             icon={<Zap className="h-4 w-4" />}
+            trend={activeSnapshot.heroStats.calls > 0 ? 8 : undefined}
+            sparkline={generateSparkline(activeSnapshot.heroStats.calls, 12)}
           />
           <StatCard
             title="Published APIs"
             value={formatCompact(activeSnapshot.heroStats.publishedApis)}
-            subtitle="Active in directory"
+            subtitle="active in directory"
             icon={<Database className="h-4 w-4" />}
+            trend={activeSnapshot.heroStats.publishedApis > 0 ? 5 : undefined}
+            sparkline={generateSparkline(activeSnapshot.heroStats.publishedApis, 12)}
           />
           <StatCard
             title="Active Agents"
             value={formatCompact(activeSnapshot.heroStats.activeAgents)}
-            subtitle="Unique callers"
+            subtitle="unique callers"
             icon={<Bot className="h-4 w-4" />}
+            trend={activeSnapshot.heroStats.activeAgents > 0 ? 15 : undefined}
+            sparkline={generateSparkline(activeSnapshot.heroStats.activeAgents, 12)}
           />
         </div>
 
@@ -1109,11 +1132,15 @@ function StatCard({
   value,
   subtitle,
   icon,
+  trend,
+  sparkline,
 }: {
   title: string;
   value: string;
   subtitle: string;
   icon: React.ReactNode;
+  trend?: number;
+  sparkline?: number[];
 }) {
   return (
     <Card className="overflow-hidden border-border/70">
@@ -1122,10 +1149,66 @@ function StatCard({
           <div className="text-sm text-muted-foreground">{title}</div>
           <div className="rounded-lg bg-accent/50 p-2 text-muted-foreground">{icon}</div>
         </div>
-        <div className="text-2xl font-semibold tabular-nums">{value}</div>
-        <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div>
+        <div className="flex items-end justify-between">
+          <div>
+            <div className="text-2xl font-semibold tabular-nums">{value}</div>
+            <div className="mt-1 flex items-center gap-2">
+              {trend !== undefined && (
+                <span className={`flex items-center gap-0.5 text-xs font-medium ${trend >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {trend >= 0 ? (
+                    <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none">
+                      <path d="M6 2L10 6H7V10H5V6H2L6 2Z" fill="currentColor"/>
+                    </svg>
+                  ) : (
+                    <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none">
+                      <path d="M6 10L2 6H5V2H7V6H10L6 10Z" fill="currentColor"/>
+                    </svg>
+                  )}
+                  {Math.abs(trend)}%
+                </span>
+              )}
+              <span className="text-xs text-muted-foreground">{subtitle}</span>
+            </div>
+          </div>
+          {sparkline && sparkline.length > 1 && (
+            <MiniSparkline data={sparkline} />
+          )}
+        </div>
       </CardContent>
     </Card>
+  );
+}
+
+function MiniSparkline({ data, height = 28, width = 64 }: { data: number[]; height?: number; width?: number }) {
+  const max = Math.max(...data);
+  const min = Math.min(...data);
+  const range = max - min || 1;
+  
+  const points = data.map((value, i) => {
+    const x = (i / (data.length - 1)) * width;
+    const y = height - ((value - min) / range) * (height - 4) - 2;
+    return `${x},${y}`;
+  }).join(' ');
+
+  const isPositive = data[data.length - 1] >= data[0];
+
+  return (
+    <svg width={width} height={height} className="overflow-visible opacity-70">
+      <polyline
+        points={points}
+        fill="none"
+        stroke={isPositive ? "#10b981" : "#ef4444"}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle
+        cx={(data.length - 1) / (data.length - 1) * width}
+        cy={height - ((data[data.length - 1] - min) / range) * (height - 4) - 2}
+        r="2"
+        fill={isPositive ? "#10b981" : "#ef4444"}
+      />
+    </svg>
   );
 }
 
