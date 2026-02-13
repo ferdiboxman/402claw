@@ -41,8 +41,11 @@ npm run d1:create
 # database_name = "clawr-prod"
 # database_id = "<your-d1-database-id>"
 
-# 3) Apply schema locally for dev
+# 3) Apply schema locally for dev (uses wrangler.d1.local.toml + ./.wrangler-d1 persist dir)
 npm run d1:migrate:local
+
+# 3b) Verify local tables
+npm run d1:verify:local
 
 # 4) Apply schema remotely to Cloudflare D1
 npm run d1:migrate:remote

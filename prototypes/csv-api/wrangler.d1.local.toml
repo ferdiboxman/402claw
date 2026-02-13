@@ -1,0 +1,8 @@
+name = "402claw-d1-local"
+main = "src/cloudflare-worker.js"
+compatibility_date = "2026-02-12"
+
+[[d1_databases]]
+binding = "CONTROL_DB"
+database_name = "clawr-prod"
+database_id = "00000000-0000-0000-0000-000000000000"
