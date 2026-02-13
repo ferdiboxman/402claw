@@ -25,6 +25,39 @@ cd /Users/Shared/Projects/402claw/prototypes/csv-api
 npm test
 ```
 
+## D1 Setup (Phase 1.1)
+
+Create and apply the initial D1 schema:
+
+```bash
+cd /Users/Shared/Projects/402claw/prototypes/csv-api
+
+# 1) Create database (copy database_id from output)
+npm run d1:create
+
+# 2) Add D1 binding to wrangler.toml (or start from wrangler.example.toml)
+# [[d1_databases]]
+# binding = "CONTROL_DB"
+# database_name = "clawr-prod"
+# database_id = "<your-d1-database-id>"
+
+# 3) Apply schema locally for dev
+npm run d1:migrate:local
+
+# 4) Apply schema remotely to Cloudflare D1
+npm run d1:migrate:remote
+```
+
+Schema file:
+- `migrations/0001_initial.sql`
+
+Tables included:
+- `tenants`
+- `users`
+- `api_keys`
+- `ledger`
+- `audit_log`
+
 ## Core API (Runtime-Agnostic)
 - `resolveTenantFromRequest(requestUrl, tenantDirectory)`
 - `resolveDispatchLimits({ plan, overrides })`

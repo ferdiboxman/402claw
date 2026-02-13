@@ -25,3 +25,12 @@ outbound = { service = "YOUR_OUTBOUND_WORKER" }
 # [[kv_namespaces]]
 # binding = "USAGE_KV"
 # id = "YOUR_USAGE_KV_ID"
+
+# Optional D1 binding for production control-plane storage
+# Create once:
+#   npx wrangler d1 create clawr-prod
+# Then copy the returned database_id into this block.
+# [[d1_databases]]
+# binding = "CONTROL_DB"
+# database_name = "clawr-prod"
+# database_id = "YOUR_D1_DATABASE_ID"

@@ -5,6 +5,9 @@
   "type": "module",
   "description": "Workers-for-Platforms dispatcher prototype for 402claw",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "d1:create": "npx wrangler d1 create clawr-prod",
+    "d1:migrate:local": "npx wrangler d1 execute clawr-prod --local --file ./migrations/0001_initial.sql",
+    "d1:migrate:remote": "npx wrangler d1 execute clawr-prod --remote --file ./migrations/0001_initial.sql"
   }
 }

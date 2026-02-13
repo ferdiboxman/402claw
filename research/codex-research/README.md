@@ -33,6 +33,7 @@ codex-research/
 - `findings/kv-binding-and-frontend-live-analytics-2026-02-13.md`
 - `findings/code-functions-research-2026-02-13.md`
 - `findings/usage-limits-and-secret-publish-hardening-2026-02-13.md`
+- `findings/phase-1-task-1-1-d1-database-setup-2026-02-13.md`
 - `prototypes/x402-csv-api-poc/`
 
 ## Prototype Quick Run
