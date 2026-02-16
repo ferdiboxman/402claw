@@ -99,7 +99,8 @@ jobs:
 
       - name: Skip deploy when required secrets are missing
         if: ${{ github.event_name != 'workflow_dispatch' && steps.secrets.outputs.ready != 'true' }}
-        run: echo "Skipping staging deploy: missing required secrets (${{ steps.secrets.outputs.missing }})."
+        run: |
+          echo "Skipping staging deploy: missing required secrets (${{ steps.secrets.outputs.missing }})."
 
       - name: Deploy dry-run
         if: ${{ steps.secrets.outputs.ready == 'true' }}
