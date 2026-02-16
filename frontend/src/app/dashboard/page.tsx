@@ -134,6 +134,29 @@ type DeployIntentsPayload = {
   intents?: DeployIntentEntry[];
 };
 
+type DeployExecutePayload = {
+  ok: boolean;
+  error?: string;
+  reason?: string;
+  message?: string;
+  preview?: {
+    ok: boolean;
+    command: string;
+    errors: DeployValidationIssue[];
+  };
+  intent?: DeployIntentEntry;
+  runMode?: "dry-run" | "execute";
+  result?: {
+    exitCode: number | null;
+    signal: string | null;
+    commandPreview: string;
+    cwd: string;
+    parsed: unknown;
+    stdout: string;
+    stderr: string;
+  };
+};
+
 const ALL_CATEGORIES = "All";
 const POLL_MS = 30_000;
 const TAB_TO_WINDOW: Record<TabKey, TrendWindow> = {
@@ -196,6 +219,16 @@ function formatCurrency(value: number): string {
 function formatPercent(value: number): string {
   if (!Number.isFinite(value)) return "0.0%";
   return `${value.toFixed(1)}%`;
+}
+
+function stringifyUnknown(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function generateSparkline(currentValue: number, points: number): number[] {
@@ -292,6 +325,9 @@ export default function Dashboard() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
   const [previewErrors, setPreviewErrors] = useState<DeployValidationIssue[]>([]);
+  const [executeLoadingMode, setExecuteLoadingMode] = useState<"dry-run" | "execute" | null>(null);
+  const [executeMessage, setExecuteMessage] = useState<string | null>(null);
+  const [executeResult, setExecuteResult] = useState<DeployExecutePayload["result"] | null>(null);
   const [recentIntents, setRecentIntents] = useState<DeployIntentEntry[]>([]);
   const [recentIntentsLoading, setRecentIntentsLoading] = useState(false);
   const [endpointCopied, setEndpointCopied] = useState(false);
@@ -421,7 +457,7 @@ export default function Dashboard() {
     }
   }, []);
 
-  const refreshDeployPreview = useCallback(async (nextForm: DeployForm) => {
+  const refreshDeployPreview = useCallback(async (nextForm: DeployForm, recordIntent = false) => {
     setPreviewLoading(true);
     setPreviewMessage(null);
 
@@ -431,7 +467,10 @@ export default function Dashboard() {
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify(nextForm),
+        body: JSON.stringify({
+          ...nextForm,
+          recordIntent,
+        }),
       });
       const payload = (await response.json()) as DeployPreviewPayload;
       if (!response.ok || !payload.ok || !payload.preview) {
@@ -442,7 +481,9 @@ export default function Dashboard() {
       setPreviewErrors(Array.isArray(payload.preview.errors) ? payload.preview.errors : []);
       setPreviewMessage(
         payload.preview.ok
-          ? "Server validation passed and deploy intent was logged."
+          ? recordIntent
+            ? "Server validation passed and deploy intent was logged."
+            : "Server validation passed."
           : "Server validation found issues. Fix fields before running the command.",
       );
 
@@ -462,6 +503,60 @@ export default function Dashboard() {
     }
   }, []);
 
+  const runDeploy = useCallback(async (runMode: "dry-run" | "execute") => {
+    setExecuteLoadingMode(runMode);
+    setExecuteMessage(null);
+    setExecuteResult(null);
+
+    try {
+      const response = await fetch("/api/deploy/execute", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          ...form,
+          runMode,
+        }),
+      });
+
+      const payload = (await response.json()) as DeployExecutePayload;
+
+      if (payload.preview) {
+        setPreviewCommand(payload.preview.command || "");
+        setPreviewErrors(Array.isArray(payload.preview.errors) ? payload.preview.errors : []);
+      }
+
+      if (payload.intent) {
+        const intent = payload.intent;
+        setRecentIntents((current) => {
+          const deduped = current.filter((item) => item.intentId !== intent.intentId);
+          return [intent, ...deduped].slice(0, 10);
+        });
+      }
+
+      if (!response.ok || !payload.ok) {
+        const baseError = payload.error || "deploy_execute_failed";
+        const detail = payload.reason || payload.message || "";
+        const message = detail ? `${baseError}: ${detail}` : baseError;
+        setExecuteMessage(message);
+        setExecuteResult(payload.result || null);
+        return;
+      }
+
+      setExecuteResult(payload.result || null);
+      setExecuteMessage(
+        runMode === "execute"
+          ? "Deploy execute finished. Check output below."
+          : "Deploy dry-run finished. Check output below.",
+      );
+    } catch (error) {
+      setExecuteMessage(error instanceof Error ? error.message : "deploy_execute_failed");
+    } finally {
+      setExecuteLoadingMode(null);
+    }
+  }, [form]);
+
   useEffect(() => {
     if (!wizardOpen) return;
     loadRecentIntents().catch(() => {});
@@ -470,7 +565,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!wizardOpen) return;
     const timer = window.setTimeout(() => {
-      refreshDeployPreview(form).catch(() => {});
+      refreshDeployPreview(form, false).catch(() => {});
     }, 220);
 
     return () => {
@@ -1008,10 +1103,25 @@ export default function Dashboard() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => refreshDeployPreview(form)}
-                    disabled={previewLoading}
+                    onClick={() => refreshDeployPreview(form, true)}
+                    disabled={previewLoading || executeLoadingMode !== null}
                   >
                     {previewLoading ? "Validating..." : "Server Validate"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => runDeploy("dry-run")}
+                    disabled={previewLoading || executeLoadingMode !== null}
+                  >
+                    {executeLoadingMode === "dry-run" ? "Running dry-run..." : "Run Dry-Run"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => runDeploy("execute")}
+                    disabled={previewLoading || executeLoadingMode !== null}
+                  >
+                    {executeLoadingMode === "execute" ? "Running execute..." : "Run Execute"}
                   </Button>
                   <Button size="sm" onClick={copyWizardCommand} className="gap-2">
                     {wizardCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -1025,6 +1135,8 @@ export default function Dashboard() {
                       setWizardCopied(false);
                       setPreviewErrors([]);
                       setPreviewMessage(null);
+                      setExecuteMessage(null);
+                      setExecuteResult(null);
                     }}
                   >
                     Reset
@@ -1052,6 +1164,63 @@ export default function Dashboard() {
               </div>
             ) : null}
 
+            {executeMessage ? (
+              <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+                {executeMessage}
+              </div>
+            ) : null}
+
+            {executeResult ? (
+              <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs">
+                <div className="mb-2 flex items-center gap-2 font-medium">
+                  <span>Execution output</span>
+                  <Badge variant={executeResult.exitCode === 0 ? "secondary" : "outline"}>
+                    {executeResult.exitCode === 0 ? "success" : `exit ${executeResult.exitCode ?? "unknown"}`}
+                  </Badge>
+                </div>
+                <div className="space-y-2 text-muted-foreground">
+                  <div>
+                    <span className="font-medium text-foreground">Command:</span> <code>{executeResult.commandPreview}</code>
+                  </div>
+                  <div>
+                    <span className="font-medium text-foreground">Working directory:</span> <code>{executeResult.cwd}</code>
+                  </div>
+                  {executeResult.signal ? (
+                    <div>
+                      <span className="font-medium text-foreground">Signal:</span> <code>{executeResult.signal}</code>
+                    </div>
+                  ) : null}
+                </div>
+
+                {stringifyUnknown(executeResult.parsed) ? (
+                  <div className="mt-3">
+                    <div className="mb-1 font-medium text-foreground">Parsed response</div>
+                    <pre className="max-h-40 overflow-auto rounded border border-border bg-background/60 p-2 text-[11px] leading-5">
+                      {stringifyUnknown(executeResult.parsed)}
+                    </pre>
+                  </div>
+                ) : null}
+
+                {executeResult.stdout ? (
+                  <div className="mt-3">
+                    <div className="mb-1 font-medium text-foreground">stdout</div>
+                    <pre className="max-h-40 overflow-auto rounded border border-border bg-background/60 p-2 text-[11px] leading-5">
+                      {executeResult.stdout}
+                    </pre>
+                  </div>
+                ) : null}
+
+                {executeResult.stderr ? (
+                  <div className="mt-3">
+                    <div className="mb-1 font-medium text-foreground">stderr</div>
+                    <pre className="max-h-40 overflow-auto rounded border border-border bg-background/60 p-2 text-[11px] leading-5">
+                      {executeResult.stderr}
+                    </pre>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             <Field label="Recent deploy intents">
               <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3 text-xs">
                 <div className="flex items-center justify-between">
@@ -1075,13 +1244,21 @@ export default function Dashboard() {
                           <div className="font-mono">
                             {intent.mode} {intent.tenant || "(tenant missing)"}
                           </div>
-                          <Badge variant={intent.valid ? "secondary" : "outline"}>
-                            {intent.valid ? "valid" : "invalid"}
-                          </Badge>
+                          <div className="flex items-center gap-1">
+                            <Badge variant={intent.valid ? "secondary" : "outline"}>
+                              {intent.valid ? "valid" : "invalid"}
+                            </Badge>
+                            <Badge variant="outline">{intent.action}</Badge>
+                            <Badge variant="outline">{intent.runMode}</Badge>
+                            <Badge variant={intent.status === "succeeded" ? "secondary" : "outline"}>
+                              {intent.status}
+                            </Badge>
+                          </div>
                         </div>
                         <div className="mt-1 text-muted-foreground">
                           {new Date(intent.createdAt).toLocaleTimeString()} • {intent.publish ? "publish" : "no publish"} • ${intent.priceUsd || "0"}
                         </div>
+                        {intent.note ? <div className="mt-1 text-muted-foreground">{intent.note}</div> : null}
                       </div>
                     ))}
                   </div>

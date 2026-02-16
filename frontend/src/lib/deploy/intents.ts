@@ -2,6 +2,9 @@ import type { DeployMode, DeployValidationIssue } from "@/lib/deploy/wizard";
 
 const MAX_INTENTS_PER_WALLET = 100;
 
+export type DeployIntentAction = "preview" | "execute";
+export type DeployIntentStatus = "recorded" | "succeeded" | "failed";
+
 export type DeployIntentEntry = {
   intentId: string;
   createdAt: string;
@@ -13,6 +16,10 @@ export type DeployIntentEntry = {
   command: string;
   valid: boolean;
   errors: DeployValidationIssue[];
+  action: DeployIntentAction;
+  status: DeployIntentStatus;
+  runMode: "dry-run" | "execute";
+  note?: string;
 };
 
 type DeployIntentStore = Map<string, DeployIntentEntry[]>;
@@ -38,11 +45,18 @@ function nextIntentId(): string {
   return `intent_${Date.now()}_${randomPart}`;
 }
 
-export function recordDeployIntent(input: Omit<DeployIntentEntry, "intentId" | "createdAt">): DeployIntentEntry {
+type RecordIntentInput =
+  Omit<DeployIntentEntry, "intentId" | "createdAt" | "action" | "status" | "runMode"> &
+  Partial<Pick<DeployIntentEntry, "action" | "status" | "runMode">>;
+
+export function recordDeployIntent(input: RecordIntentInput): DeployIntentEntry {
   const entry: DeployIntentEntry = {
+    ...input,
     intentId: nextIntentId(),
     createdAt: new Date().toISOString(),
-    ...input,
+    action: input.action || "preview",
+    status: input.status || "recorded",
+    runMode: input.runMode || "dry-run",
   };
 
   const key = entry.walletAddress.toLowerCase();

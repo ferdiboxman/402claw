@@ -36,17 +36,28 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const preview = createDeployPreview(body);
-  const intent = recordDeployIntent({
-    walletAddress: session.walletAddress,
-    mode: preview.normalized.mode,
-    tenant: preview.normalized.tenant,
-    publish: preview.normalized.publish,
-    priceUsd: preview.normalized.priceUsd,
-    command: preview.command,
-    valid: preview.ok,
-    errors: preview.errors,
-  });
+  const bodyObject = (body && typeof body === "object" && !Array.isArray(body))
+    ? (body as Record<string, unknown>)
+    : {};
+  const recordIntent = bodyObject.recordIntent !== false;
+
+  const preview = createDeployPreview(bodyObject);
+  const intent = recordIntent
+    ? recordDeployIntent({
+      walletAddress: session.walletAddress,
+      mode: preview.normalized.mode,
+      tenant: preview.normalized.tenant,
+      publish: preview.normalized.publish,
+      priceUsd: preview.normalized.priceUsd,
+      command: preview.command,
+      valid: preview.ok,
+      errors: preview.errors,
+      action: "preview",
+      status: preview.ok ? "succeeded" : "failed",
+      runMode: "dry-run",
+      note: "preview_validation",
+    })
+    : null;
 
   return NextResponse.json(
     {
