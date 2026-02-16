@@ -1,0 +1,4 @@
+name = "clawr"
+main = "cloudflare/clawr-worker.js"
+compatibility_date = "2026-02-16"
+workers_dev = true
