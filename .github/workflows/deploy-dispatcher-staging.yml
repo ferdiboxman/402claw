@@ -1,6 +1,13 @@
 name: Deploy Dispatcher Staging
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "prototypes/cli/**"
+      - "prototypes/csv-api/**"
+      - ".github/workflows/deploy-dispatcher-staging.yml"
   workflow_dispatch:
     inputs:
       script_name:
@@ -12,6 +19,10 @@ on:
         required: true
         type: boolean
         default: false
+
+concurrency:
+  group: deploy-dispatcher-staging-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -41,17 +52,59 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate required secrets
+      - name: Resolve deploy parameters
+        id: params
+        env:
+          INPUT_SCRIPT_NAME: ${{ github.event.inputs.script_name || '' }}
+          INPUT_EXECUTE: ${{ github.event.inputs.execute || 'false' }}
+          AUTO_EXECUTE: ${{ vars.CLOUDFLARE_STAGING_AUTO_EXECUTE }}
         run: |
-          test -n "$CLOUDFLARE_ACCOUNT_ID"
-          test -n "$CLOUDFLARE_API_TOKEN"
-          test -n "$CLOUDFLARE_DISPATCH_NAMESPACE"
+          script_name="$INPUT_SCRIPT_NAME"
+          if [[ -z "$script_name" ]]; then
+            script_name="clawr-dispatcher"
+          fi
+
+          execute="false"
+          if [[ "$INPUT_EXECUTE" == "true" ]]; then
+            execute="true"
+          elif [[ "$GITHUB_EVENT_NAME" == "push" && "${AUTO_EXECUTE,,}" == "true" ]]; then
+            execute="true"
+          fi
+
+          echo "script_name=$script_name" >> "$GITHUB_OUTPUT"
+          echo "execute=$execute" >> "$GITHUB_OUTPUT"
+
+      - name: Check required secrets
+        id: secrets
+        run: |
+          missing=()
+          [[ -n "$CLOUDFLARE_ACCOUNT_ID" ]] || missing+=("CLOUDFLARE_ACCOUNT_ID")
+          [[ -n "$CLOUDFLARE_API_TOKEN" ]] || missing+=("CLOUDFLARE_API_TOKEN")
+          [[ -n "$CLOUDFLARE_DISPATCH_NAMESPACE" ]] || missing+=("CLOUDFLARE_DISPATCH_NAMESPACE")
+
+          if (( ${#missing[@]} > 0 )); then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "missing=${missing[*]}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fail manual run when required secrets are missing
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.secrets.outputs.ready != 'true' }}
+        run: |
+          echo "Missing required secrets: ${{ steps.secrets.outputs.missing }}"
+          exit 1
+
+      - name: Skip deploy when required secrets are missing
+        if: ${{ github.event_name != 'workflow_dispatch' && steps.secrets.outputs.ready != 'true' }}
+        run: echo "Skipping staging deploy: missing required secrets (${{ steps.secrets.outputs.missing }})."
 
       - name: Deploy dry-run
+        if: ${{ steps.secrets.outputs.ready == 'true' }}
         run: |
           args=(
             cloudflare-deploy-dispatcher
-            --script-name "${{ inputs.script_name }}"
+            --script-name "${{ steps.params.outputs.script_name }}"
             --account-id "$CLOUDFLARE_ACCOUNT_ID"
             --api-token "$CLOUDFLARE_API_TOKEN"
             --dispatch-namespace "$CLOUDFLARE_DISPATCH_NAMESPACE"
@@ -65,11 +118,11 @@ jobs:
           node src/index.js "${args[@]}"
 
       - name: Deploy execute
-        if: ${{ inputs.execute == true }}
+        if: ${{ steps.secrets.outputs.ready == 'true' && steps.params.outputs.execute == 'true' }}
         run: |
           args=(
             cloudflare-deploy-dispatcher
-            --script-name "${{ inputs.script_name }}"
+            --script-name "${{ steps.params.outputs.script_name }}"
             --account-id "$CLOUDFLARE_ACCOUNT_ID"
             --api-token "$CLOUDFLARE_API_TOKEN"
             --dispatch-namespace "$CLOUDFLARE_DISPATCH_NAMESPACE"
