@@ -55,18 +55,20 @@ jobs:
       - name: Resolve deploy parameters
         id: params
         env:
-          INPUT_SCRIPT_NAME: ${{ github.event.inputs.script_name || '' }}
-          INPUT_EXECUTE: ${{ github.event.inputs.execute || 'false' }}
           AUTO_EXECUTE: ${{ vars.CLOUDFLARE_STAGING_AUTO_EXECUTE }}
         run: |
-          script_name="$INPUT_SCRIPT_NAME"
-          if [[ -z "$script_name" ]]; then
-            script_name="clawr-dispatcher"
-          fi
-
+          script_name="clawr-dispatcher"
           execute="false"
-          if [[ "$INPUT_EXECUTE" == "true" ]]; then
-            execute="true"
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            dispatch_script_name="$(jq -r '.inputs.script_name // empty' "$GITHUB_EVENT_PATH")"
+            dispatch_execute="$(jq -r '.inputs.execute // "false"' "$GITHUB_EVENT_PATH")"
+            if [[ -n "$dispatch_script_name" ]]; then
+              script_name="$dispatch_script_name"
+            fi
+            if [[ "$dispatch_execute" == "true" ]]; then
+              execute="true"
+            fi
           elif [[ "$GITHUB_EVENT_NAME" == "push" && "${AUTO_EXECUTE,,}" == "true" ]]; then
             execute="true"
           fi
