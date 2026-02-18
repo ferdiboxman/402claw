@@ -1,3 +1,8 @@
+---
+name: clawr
+description: Expert skill for creating, deploying, and monetizing x402 paid APIs with USDC micropayments on Base.
+---
+
 # Clawr — x402 Paid API Creator Skill
 
 Expert skill for creating, deploying, and monetizing x402 paid APIs.
