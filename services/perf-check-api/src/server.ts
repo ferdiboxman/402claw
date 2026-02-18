@@ -3,6 +3,7 @@ import { paymentMiddleware, x402ResourceServer } from '@x402/express';
 import { ExactEvmScheme } from '@x402/evm/exact/server';
 import { HTTPFacilitatorClient } from '@x402/core/server';
 import { createFacilitatorConfig } from '@coinbase/x402';
+import { bazaarResourceServerExtension, declareDiscoveryExtension } from '@x402/extensions/bazaar';
 import { checkPerformance } from './checks/performance.js';
 import { checkLighthouse } from './checks/lighthouse.js';
 import { checkSEO } from './checks/seo.js';
@@ -24,27 +25,104 @@ const facilitatorClient = new HTTPFacilitatorClient(facilitatorConfig);
 
 const server = new x402ResourceServer(facilitatorClient)
   .register(network, new ExactEvmScheme());
+server.registerExtension(bazaarResourceServerExtension);
 
 const routes = {
   'GET /check': {
     accepts: [{ scheme: 'exact' as const, payTo, price: '$0.01', network }],
     description: 'Website performance check: response time, SSL, DNS, security headers',
     mimeType: 'application/json',
+    extensions: {
+      bazaar: {
+        discoverable: true,
+        category: "analytics",
+        tags: ["performance", "ssl", "dns", "seo", "security"],
+      },
+      ...declareDiscoveryExtension({
+        input: { url: 'https://example.com' },
+        inputSchema: {
+          properties: {
+            url: { type: 'string', description: 'URL to check' },
+          },
+          required: ['url'],
+        },
+        output: {
+          example: { url: 'https://example.com', responseTime: 245, ssl: { valid: true }, dns: { resolves: true }, headers: { score: 8 } },
+        },
+      }),
+    },
   },
   'GET /lighthouse': {
     accepts: [{ scheme: 'exact' as const, payTo, price: '$0.03', network }],
     description: 'Google PageSpeed Insights: Core Web Vitals, mobile + desktop',
     mimeType: 'application/json',
+    extensions: {
+      bazaar: {
+        discoverable: true,
+        category: "analytics",
+        tags: ["performance", "ssl", "dns", "seo", "security"],
+      },
+      ...declareDiscoveryExtension({
+        input: { url: 'https://example.com' },
+        inputSchema: {
+          properties: {
+            url: { type: 'string', description: 'URL to audit' },
+          },
+          required: ['url'],
+        },
+        output: {
+          example: { url: 'https://example.com', performance: 92, accessibility: 98, bestPractices: 95, seo: 100 },
+        },
+      }),
+    },
   },
   'GET /seo': {
     accepts: [{ scheme: 'exact' as const, payTo, price: '$0.02', network }],
     description: 'SEO audit with scored report',
     mimeType: 'application/json',
+    extensions: {
+      bazaar: {
+        discoverable: true,
+        category: "analytics",
+        tags: ["performance", "ssl", "dns", "seo", "security"],
+      },
+      ...declareDiscoveryExtension({
+        input: { url: 'https://example.com' },
+        inputSchema: {
+          properties: {
+            url: { type: 'string', description: 'URL to audit for SEO' },
+          },
+          required: ['url'],
+        },
+        output: {
+          example: { url: 'https://example.com', score: 85, issues: [], recommendations: [] },
+        },
+      }),
+    },
   },
   'GET /links': {
     accepts: [{ scheme: 'exact' as const, payTo, price: '$0.02', network }],
     description: 'Broken link detection and analysis',
     mimeType: 'application/json',
+    extensions: {
+      bazaar: {
+        discoverable: true,
+        category: "analytics",
+        tags: ["performance", "ssl", "dns", "seo", "security"],
+      },
+      ...declareDiscoveryExtension({
+        input: { url: 'https://example.com' },
+        inputSchema: {
+          properties: {
+            url: { type: 'string', description: 'URL to scan for broken links' },
+          },
+          required: ['url'],
+        },
+        output: {
+          example: { url: 'https://example.com', totalLinks: 42, brokenLinks: 2, links: [] },
+        },
+      }),
+    },
   },
 };
 

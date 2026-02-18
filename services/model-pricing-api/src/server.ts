@@ -4,7 +4,7 @@ import { paymentMiddleware, x402ResourceServer } from "@x402/express";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { createFacilitatorConfig } from "@coinbase/x402";
-import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
+import { bazaarResourceServerExtension, declareDiscoveryExtension } from "@x402/extensions/bazaar";
 import modelsRouter from "./routes/models.js";
 
 config();
@@ -20,6 +20,7 @@ const facilitatorConfig = cdpKeyId && cdpKeySecret
   : { url: process.env.FACILITATOR_URL || "https://www.x402.org/facilitator" };
 const facilitatorClient = new HTTPFacilitatorClient(facilitatorConfig);
 const resourceServer = new x402ResourceServer(facilitatorClient).register(NETWORK, new ExactEvmScheme());
+resourceServer.registerExtension(bazaarResourceServerExtension);
 
 const app = express();
 app.use(express.json());
@@ -54,6 +55,11 @@ app.use(
         description: "List all AI models with pricing",
         mimeType: "application/json",
         extensions: {
+      bazaar: {
+        discoverable: true,
+        category: "ai",
+        tags: ["llm", "pricing", "models", "comparison"],
+      },
           ...declareDiscoveryExtension({
             input: { provider: "OpenAI", tag: "coding" },
             inputSchema: {
@@ -83,6 +89,11 @@ app.use(
         description: "Get detailed info for a specific AI model",
         mimeType: "application/json",
         extensions: {
+      bazaar: {
+        discoverable: true,
+        category: "ai",
+        tags: ["llm", "pricing", "models", "comparison"],
+      },
           ...declareDiscoveryExtension({
             input: { name: "gpt-4o" },
             inputSchema: {
@@ -117,6 +128,11 @@ app.use(
         description: "Compare multiple AI models side-by-side",
         mimeType: "application/json",
         extensions: {
+      bazaar: {
+        discoverable: true,
+        category: "ai",
+        tags: ["llm", "pricing", "models", "comparison"],
+      },
           ...declareDiscoveryExtension({
             input: { models: "gpt-4o,claude-sonnet-4" },
             inputSchema: {
@@ -147,6 +163,11 @@ app.use(
         description: "Get AI model recommendations for a task and budget",
         mimeType: "application/json",
         extensions: {
+      bazaar: {
+        discoverable: true,
+        category: "ai",
+        tags: ["llm", "pricing", "models", "comparison"],
+      },
           ...declareDiscoveryExtension({
             input: { task: "coding", budget: "0.01" },
             inputSchema: {
