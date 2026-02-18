@@ -1,0 +1,19 @@
+name,provider,input_price_per_1m,output_price_per_1m,context_window,modality,release_date
+GPT-4o,OpenAI,2.50,10.00,128000,text+vision,2024-05-13
+GPT-4o mini,OpenAI,0.15,0.60,128000,text+vision,2024-07-18
+GPT-4 Turbo,OpenAI,10.00,30.00,128000,text+vision,2024-04-09
+o1,OpenAI,15.00,60.00,200000,text,2024-12-17
+o1-mini,OpenAI,3.00,12.00,128000,text,2024-09-12
+o3-mini,OpenAI,1.10,4.40,200000,text,2025-01-31
+Claude 3.5 Sonnet,Anthropic,3.00,15.00,200000,text+vision,2024-10-22
+Claude 3.5 Haiku,Anthropic,0.80,4.00,200000,text+vision,2024-11-04
+Claude 3 Opus,Anthropic,15.00,75.00,200000,text+vision,2024-03-04
+Gemini 1.5 Pro,Google,1.25,5.00,2000000,text+vision+audio,2024-05-14
+Gemini 1.5 Flash,Google,0.075,0.30,1000000,text+vision+audio,2024-05-14
+Gemini 2.0 Flash,Google,0.10,0.40,1000000,text+vision+audio,2025-02-05
+Llama 3.1 405B,Meta,3.00,3.00,128000,text,2024-07-23
+Llama 3.1 70B,Meta,0.70,0.80,128000,text,2024-07-23
+Mistral Large,Mistral,2.00,6.00,128000,text,2024-11-18
+DeepSeek V3,DeepSeek,0.27,1.10,128000,text,2024-12-26
+DeepSeek R1,DeepSeek,0.55,2.19,128000,text,2025-01-20
+Command R+,Cohere,2.50,10.00,128000,text,2024-04-04

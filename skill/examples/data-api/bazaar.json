@@ -1,0 +1,11 @@
+{
+  "name": "AI Model Pricing API",
+  "description": "Real-time AI model pricing data - compare costs across providers",
+  "endpoints": [
+    {"path": "/api/models", "method": "GET", "price": "$0.001", "description": "List all AI model prices"},
+    {"path": "/api/models/:name", "method": "GET", "price": "$0.0005", "description": "Get single model pricing"},
+    {"path": "/api/models/compare", "method": "GET", "price": "$0.002", "description": "Compare multiple models"}
+  ],
+  "tags": ["ai", "pricing", "models", "data"],
+  "network": "base"
+}

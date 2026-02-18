@@ -1,154 +1,204 @@
-# 402claw
+<div align="center">
 
-> Deploy your data, get a paid API. One command.
+# 🦞 Clawr
 
-402claw is a platform for deploying paid APIs with x402 micropayments. Upload a CSV or JSON file, set a price, and get a working API endpoint that earns you money.
+### The expert skill for creating x402 paid APIs
 
-## Why 402claw?
+**Install the skill. Tell your agent what to monetize. Ship a paid API in minutes.**
 
-- **One command deployment**: `402claw deploy data.csv --price 0.001`
-- **Code function deployment**: `402claw deploy fn.js --type function --price 0.01`
-- **API wrapper mode**: `402claw wrap https://api.example.com --price 0.002`
-- **Built-in abuse controls**: per-caller rate limits + daily/monthly usage quotas
-- **Micropayments that work**: x402 protocol + USDC on Base = sub-cent transactions
-- **5% fee** (vs RapidAPI's 25%)
-- **CLI-first**: Built for developers and AI agents
+[![skills.sh](https://img.shields.io/badge/skills.sh-clawr-blue)](https://skills.sh/clawr)
+[![x402](https://img.shields.io/badge/protocol-x402-green)](https://x402.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Status
+</div>
 
-🚧 **Under Development** - MVP in progress
+---
 
-## Tech Stack
+## What is Clawr?
 
-- **Payments**: x402 protocol (Coinbase)
-- **Currency**: USDC on Base (Ethereum L2)
-- **Hosting**: Cloudflare Workers for Platforms
-- **CLI**: Node.js (prototype in progress)
+Clawr is a **skill** — a package of expertise that AI agents use to create, deploy, and monetize APIs using the [x402 protocol](https://x402.org). It's not a platform. It's the playbook your agent follows to turn any data, model, or tool into a paid API endpoint that earns USDC on every request.
+
+## Quick Start
+
+```bash
+npx skills add clawr
+```
+
+Then tell your agent:
+
+> "I want to create a paid API for my stock data"
+
+That's it. Clawr guides your agent through the entire process — from scaffolding to earning.
+
+---
+
+## What the Skill Does
+
+```
+  You describe what to monetize
+            │
+            ▼
+  ┌─────────────────┐
+  │    1. ANALYZE    │  Understand use case, data, value per call
+  └────────┬────────┘
+           ▼
+  ┌─────────────────┐
+  │   2. SCAFFOLD    │  Generate x402 API project with payment middleware
+  └────────┬────────┘
+           ▼
+  ┌─────────────────┐
+  │    3. DEPLOY     │  Ship to Railway, Vercel, Cloudflare, or Fly.io
+  └────────┬────────┘
+           ▼
+  ┌─────────────────┐
+  │   4. REGISTER    │  List on the Bazaar for agent discovery
+  └────────┬────────┘
+           ▼
+      💰 Earn USDC
+      on every request
+```
+
+### Not a platform. A skill.
+
+Clawr doesn't host your API. It doesn't take a cut. It teaches your agent how to build paid APIs the right way — then gets out of the way.
+
+---
+
+## Supported Stacks
+
+| Stack | Deploy Target | Best For |
+|-------|--------------|----------|
+| **Express** | Railway, Fly.io | General APIs, data endpoints |
+| **Next.js** | Vercel | Full-stack apps with API routes |
+| **Cloudflare Workers** | Cloudflare | Edge performance, global low-latency |
+| **FastAPI** | Railway, Fly.io | ML models, Python data pipelines |
+
+---
+
+## Examples
+
+### 📊 Data API
+Turn a CSV of startup funding rounds into a paid API. Express on Railway, $0.001/request.
+→ [`skill/examples/data-api`](skill/examples/data-api)
+
+### 🤖 AI Skill
+Wrap a Hugging Face sentiment model as a paid endpoint. FastAPI on Fly.io, $0.005/request.
+→ [`skill/examples/ai-skill`](skill/examples/ai-skill)
+
+### 🔄 Proxy API
+Wrap a free weather API with caching and better formatting. CF Worker, $0.0005/request.
+→ [`skill/examples/proxy-api`](skill/examples/proxy-api)
+
+---
+
+## The Machine Economy
+
+APIs are becoming the commerce layer for autonomous agents. Agents need to **earn** to sustain themselves — paying for compute, data, and other services.
+
+Clawr follows the **Automaton pattern**: an agent that can create its own revenue streams. Install the skill, point it at something valuable, and your agent builds the infrastructure to monetize it. Every paid request is income. Every Bazaar listing is a storefront.
+
+The API era rewarded infrastructure builders. The skill era rewards **expertise**.
+
+---
+
+## Install
+
+### Via skills.sh (recommended)
+```bash
+npx skills add clawr
+```
+
+### Manual
+```bash
+git clone https://github.com/402claw/clawr
+# Copy skill/ directory to your agent's skills folder
+```
+
+### Claude Code
+```bash
+# Add to your .claude/skills/ directory
+cp -r clawr/skill ~/.claude/skills/clawr
+```
+
+### OpenClaw
+```bash
+# Add to spawner skills
+cp -r clawr/skill ~/.spawner/skills/clawr
+```
+
+---
+
+## Docs
+
+| Guide | Description |
+|-------|-------------|
+| [Quickstart](skill/docs/quickstart.md) | Zero to earning in 5 minutes |
+| [Deployment Guide](skill/docs/deployment-guide.md) | Platform-specific deploy instructions |
+| [Bazaar Guide](skill/docs/bazaar-guide.md) | Get discovered by agents |
+| [Pricing Guide](skill/docs/pricing-guide.md) | Price your API to win |
+
+---
+
+## How x402 Works
+
+[x402](https://x402.org) is a protocol for HTTP-native payments. No API keys. No accounts. No subscriptions.
+
+```
+Client request  →  Server responds 402 + price
+Client signs USDC payment  →  Sends payment header
+Server verifies  →  Returns data
+```
+
+Agents pay per request in USDC on Base. Settlement is instant. Your wallet receives funds directly.
+
+---
 
 ## Project Structure
 
 ```
-402claw/
-├── research/           # Market research and technical analysis
-│   ├── claude-research/    # Claude's research output
-│   └── codex-research/     # Codex's research output
-├── prototypes/         # Working prototypes
-│   ├── x402-server/        # Basic x402 Express server
-│   ├── csv-api/            # Dispatcher + tenant routing prototype
-│   ├── cli/                # Deploy/registry CLI prototype
-│   └── ...                 # Additional runtime prototypes
-├── research/codex-research/prototypes/
-│   └── x402-csv-api-poc/   # CSV-to-API proof of concept
-├── docs/               # Documentation (coming soon)
-└── specs/              # API and protocol specifications
+skill/              ← The skill (this is what agents use)
+  SKILL.md          ← Agent workflow & reference
+  templates/        ← Express, Next.js, CF Workers, FastAPI starters
+  examples/         ← 3 working examples
+  prompts/          ← Agent prompts for guided workflow
+  scripts/          ← Scaffold, validate, register, test
+  docs/             ← Guides
+prototypes/         ← Early experiments (reference only)
+frontend/           ← Dashboard prototype (reference only)
 ```
 
-## Research
+---
 
-This project includes extensive research on:
-- x402 protocol implementation
-- Cloudflare Workers for Platforms architecture
-- Competitive analysis (RapidAPI, Val.town, Seren)
-- Market sizing and pricing strategy
+## Contributing
 
-See `/research` for details.
-
-## Quick Start (Prototype)
+Clawr is open source. We welcome contributions.
 
 ```bash
-# Run the x402 prototype server
-cd prototypes/x402-server
+git clone https://github.com/402claw/clawr
+cd clawr
 npm install
-npm start
-
-# Test endpoints
-curl http://localhost:4021/health        # Free
-curl http://localhost:4021/data          # Returns 402 (payment required)
-
-# Run the CSV-to-API x402 PoC
-cd research/codex-research/prototypes/x402-csv-api-poc
 npm test
-npm run demo
-
-# Run dispatcher prototype tests
-cd /Users/Shared/Projects/402claw/prototypes/csv-api
-npm test
-
-# Run CLI prototype tests
-cd /Users/Shared/Projects/402claw/prototypes/cli
-npm test
-
-# Preview Cloudflare dispatcher deployment payload (dry-run)
-node src/index.js cloudflare-deploy-dispatcher \
-  --registry /tmp/402claw-registry.json \
-  --script-name claw-dispatcher \
-  --account-id acc_demo \
-  --api-token token_demo \
-  --dispatch-namespace ns_demo
-
-# Preview rollback target from deployment history
-node src/index.js cloudflare-rollback-dispatcher \
-  --state-path /tmp/402claw-state.json \
-  --script-name claw-dispatcher \
-  --account-id acc_demo \
-  --api-token token_demo
-
-# Deploy a JS function tenant
-node src/index.js deploy ./examples/hello.js \
-  --tenant hello-fn \
-  --type function \
-  --price 0.01 \
-  --quota-day 5000 \
-  --quota-month 100000 \
-  --x402 true
-
-# Wrap an upstream API as paid endpoint
-node src/index.js wrap https://api.example.com/v1 \
-  --tenant wrapped-api \
-  --price 0.002 \
-  --method GET \
-  --cache-ttl 60 \
-  --caller-rate-limit 20/60s
-
-# Wrap with secret header references (kept out of registry plaintext)
-OPENAI_API_KEY=sk-demo node src/index.js wrap https://api.example.com/v1 \
-  --tenant wrapped-secret-api \
-  --price 0.002 \
-  --inject-header-secret "Authorization: OPENAI_API_KEY" \
-  --publish \
-  --dispatch-namespace clawr-staging \
-  --account-id <cloudflare-account-id> \
-  --api-token <cloudflare-api-token> \
-  --execute
 ```
 
-## Roadmap
+### Areas We Need Help
 
-- [x] Research phase
-- [x] x402 prototype
-- [ ] CLI MVP
-- [ ] Cloudflare Workers integration
-- [ ] Public beta
+- **New stack templates** — Deno, Bun, Go, Rust
+- **Deployment targets** — More platform integrations
+- **Bazaar metadata** — Better discovery algorithms
+- **Pricing models** — Dynamic pricing strategies
 
-## CI
-
-GitHub Actions pipeline is defined in `/Users/Shared/Projects/402claw/.github/workflows/ci.yml` and runs:
-- frontend lint + build
-- CLI tests
-- dispatcher tests
-- x402 server tests
-
-Dispatcher monitoring is defined in `/Users/Shared/Projects/402claw/.github/workflows/monitoring.yml` and runs every 30 minutes using:
-- `/Users/Shared/Projects/402claw/scripts/monitor-dispatcher.mjs`
-
-Staging deploy workflow:
-- `/Users/Shared/Projects/402claw/.github/workflows/deploy-dispatcher-staging.yml`
-- Manual trigger with dry-run by default, optional execute mode
-
-## Team
-
-Built by [Ferdi](https://github.com/ferdiboxman) with AI assistance from Claude and Codex.
+---
 
 ## License
 
 MIT
+
+---
+
+<div align="center">
+
+**[Get Started →](skill/docs/quickstart.md)**
+
+Built for the skill era. Powered by [x402](https://x402.org).
+
+</div>

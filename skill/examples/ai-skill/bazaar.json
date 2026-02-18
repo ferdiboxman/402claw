@@ -1,0 +1,31 @@
+{
+  "name": "SEO Analyzer",
+  "description": "AI-powered SEO analysis - get actionable recommendations for any URL",
+  "endpoints": [
+    {
+      "path": "/api/analyze",
+      "method": "POST",
+      "price": "$0.05",
+      "description": "Analyze a URL for SEO issues",
+      "input": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to analyze"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "score": { "type": "number" },
+          "issues": { "type": "array" },
+          "recommendations": { "type": "array" }
+        }
+      }
+    }
+  ],
+  "tags": ["seo", "ai", "analysis", "web"],
+  "network": "base"
+}

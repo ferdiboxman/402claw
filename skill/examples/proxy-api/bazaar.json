@@ -1,0 +1,32 @@
+{
+  "name": "x402-proxy-api-example",
+  "version": "1.0.0",
+  "title": "Weather API Proxy with x402 Payments",
+  "description": "Wraps the free Open-Meteo weather API with x402 micropayments, adding in-memory caching, rate limiting, and intelligent enrichment (feels-like temperature, UV warnings, clothing suggestions).",
+  "author": "402claw",
+  "license": "MIT",
+  "tags": ["x402", "weather", "proxy", "api", "micropayments", "express"],
+  "category": "api",
+  "endpoints": [
+    {
+      "path": "/api/weather",
+      "method": "GET",
+      "price": "$0.001",
+      "description": "Current weather with enrichment"
+    },
+    {
+      "path": "/api/forecast",
+      "method": "GET",
+      "price": "$0.005",
+      "description": "Extended forecast (up to 16 days) with daily enrichment"
+    },
+    {
+      "path": "/health",
+      "method": "GET",
+      "price": "free",
+      "description": "Health check"
+    }
+  ],
+  "network": "base-sepolia",
+  "upstream": "https://api.open-meteo.com/v1/forecast"
+}

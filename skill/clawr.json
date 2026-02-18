@@ -1,0 +1,58 @@
+{
+  "name": "clawr",
+  "version": "0.1.0",
+  "description": "The expert skill for creating x402 paid APIs. Scaffold, deploy, and monetize APIs with micropayments.",
+  "author": "402claw",
+  "license": "MIT",
+  "homepage": "https://github.com/402claw/clawr",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/402claw/clawr.git"
+  },
+  "skill": {
+    "type": "expert",
+    "category": "monetization",
+    "capabilities": [
+      "scaffold-x402-api",
+      "deploy-to-cloud",
+      "register-on-bazaar",
+      "pricing-strategy",
+      "payment-middleware"
+    ],
+    "stacks": ["express", "nextjs", "cloudflare-workers", "fastapi"],
+    "deployTargets": ["railway", "vercel", "cloudflare", "fly-io"],
+    "protocols": ["x402"],
+    "currencies": ["USDC"],
+    "chains": ["base"]
+  },
+  "tags": [
+    "x402",
+    "paid-api",
+    "monetization",
+    "micropayments",
+    "usdc",
+    "base",
+    "api-builder",
+    "skills",
+    "bazaar",
+    "agent-tools"
+  ],
+  "keywords": [
+    "x402",
+    "paid api",
+    "api monetization",
+    "micropayments",
+    "USDC",
+    "crypto payments",
+    "agent economy",
+    "skill era"
+  ],
+  "icon": "🦞",
+  "install": "npx skills add clawr",
+  "docs": {
+    "quickstart": "skill/docs/quickstart.md",
+    "deployment": "skill/docs/deployment-guide.md",
+    "bazaar": "skill/docs/bazaar-guide.md",
+    "pricing": "skill/docs/pricing-guide.md"
+  }
+}

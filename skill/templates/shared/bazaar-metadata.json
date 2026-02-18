@@ -1,0 +1,19 @@
+{
+  "name": "My API",
+  "description": "A payment-gated API powered by the x402 protocol",
+  "url": "https://my-api.example.com",
+  "endpoints": [
+    {
+      "path": "/api/data",
+      "method": "GET",
+      "price": "0.01",
+      "currency": "USDC",
+      "network": "eip155:8453",
+      "description": "Premium data endpoint"
+    }
+  ],
+  "tags": ["data", "api"],
+  "docs": "https://my-api.example.com/docs",
+  "facilitator": "https://x402.org/facilitator",
+  "recipient": "0xYourWalletAddress"
+}

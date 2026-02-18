@@ -1,0 +1,12 @@
+{
+  "x402Version": 1,
+  "accepts": ["exact"],
+  "usdcAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "payTo": "0xYourWalletAddress",
+  "maxAmountRequired": "10000",
+  "chainId": 8453,
+  "resource": "https://my-api.example.com/api/data",
+  "facilitatorUrl": "https://x402.org/facilitator",
+  "description": "Premium data endpoint",
+  "mimeType": "application/json"
+}

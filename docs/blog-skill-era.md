@@ -90,28 +90,27 @@ The builders who win in the skill era won't be the ones who build the best APIs.
 
 ## How Clawr Enables This
 
-This is why we built Clawr.
+This is why we built Clawr as a **skill**.
 
-Clawr is the monetization layer for the skill era. It lets you deploy data *and* skills with a single command, price them however you want, and get paid via x402 micropayments. No accounts. No API keys. No subscription management. Just value flowing both ways.
+Clawr isn't a platform you sign up for. It's an expert skill you install — and it teaches your AI agent how to create, deploy, and monetize paid APIs using the x402 protocol.
 
 ```bash
-# Deploy a data API
-$ clawr deploy pricing.csv --price 0.001
-✓ Live at api.clawr.ai/v1/pricing
+# Install the Clawr skill
+npx skills add clawr
 
-# Deploy a skill
-$ clawr deploy ./seo-audit --price 0.05
-✓ Live at api.clawr.ai/skills/seo-audit
+# Then just tell your agent:
+"Turn my pricing model into a paid API"
 ```
 
-That's it. Your expertise is now callable infrastructure. Agents pay per request. Revenue while you sleep.
+Your agent uses Clawr's expertise to:
+- **Scaffold** a production-ready x402 API
+- **Deploy** to Railway, Vercel, Cloudflare, or Fly.io
+- **Register** on the Bazaar so other agents can discover and pay
+- **Price** competitively based on market analysis
 
-We handle the hard parts:
-- **x402 micropayments** — agents pay-per-call with no accounts, no signup, no friction
-- **Instant deployment** — one command to go from file to live endpoint
-- **Data + skills** — monetize information *and* judgment on the same platform
+No accounts. No dashboards. No vendor lock-in. Your agent handles everything, your API runs on your infrastructure, and agents pay you directly in USDC.
 
-The API era had Stripe for payments and Twilio for messaging. The skill era needs a layer for expertise. That's Clawr.
+That's what a skill looks like in practice. Packaged expertise that makes your agent smarter.
 
 ---
 
@@ -128,7 +127,11 @@ The API era created Stripe, Twilio, Plaid—companies worth tens of billions of 
 
 The question isn't whether this shift is happening. It's whether you'll be charging for skills or paying for them.
 
-**[Deploy your first skill →](https://clawr.ai)**
+**[Install Clawr and ship your first paid API →](https://github.com/402claw/clawr)**
+
+```bash
+npx skills add clawr
+```
 
 ---
 
