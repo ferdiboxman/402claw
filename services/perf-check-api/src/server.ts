@@ -2,6 +2,7 @@ import express from 'express';
 import { paymentMiddleware, x402ResourceServer } from '@x402/express';
 import { ExactEvmScheme } from '@x402/evm/exact/server';
 import { HTTPFacilitatorClient } from '@x402/core/server';
+import { createFacilitatorConfig } from '@coinbase/x402';
 import { checkPerformance } from './checks/performance.js';
 import { checkLighthouse } from './checks/lighthouse.js';
 import { checkSEO } from './checks/seo.js';
@@ -13,9 +14,13 @@ const PORT = parseInt(process.env.PORT || '3100');
 const payTo = process.env.PAY_TO || '0x5C78C7E37f3cCB01059167BaE3b4622b44f97D0F';
 const network = (process.env.NETWORK || 'eip155:84532') as `${string}:${string}`;
 
-// Use CDP facilitator for mainnet, x402.org for testnet
-const facilitatorUrl = process.env.FACILITATOR_URL || 'https://www.x402.org/facilitator';
-const facilitatorClient = new HTTPFacilitatorClient({ url: facilitatorUrl });
+// Auto-detect: if CDP keys present, use mainnet facilitator. Otherwise testnet.
+const cdpKeyId = process.env.CDP_API_KEY_ID;
+const cdpKeySecret = process.env.CDP_API_KEY_SECRET;
+const facilitatorConfig = cdpKeyId && cdpKeySecret
+  ? createFacilitatorConfig(cdpKeyId, cdpKeySecret)
+  : { url: process.env.FACILITATOR_URL || 'https://www.x402.org/facilitator' };
+const facilitatorClient = new HTTPFacilitatorClient(facilitatorConfig);
 
 const server = new x402ResourceServer(facilitatorClient)
   .register(network, new ExactEvmScheme());
@@ -113,5 +118,5 @@ app.listen(PORT, () => {
   console.log(`🚀 perf-check-api running on port ${PORT}`);
   console.log(`💰 Payments to: ${payTo}`);
   console.log(`🔗 Network: ${network}`);
-  console.log(`🏦 Facilitator: ${facilitatorUrl}`);
+  console.log(`🏦 Facilitator: ${cdpKeyId ? 'CDP (mainnet)' : 'x402.org (testnet)'}`);
 });
