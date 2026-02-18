@@ -9,6 +9,7 @@
     "dev": "tsx src/server.ts"
   },
   "dependencies": {
+    "@coinbase/x402": "^2.1.0",
     "@x402/evm": "^2.3.1",
     "@x402/express": "^2.3.0",
     "cheerio": "^1.0.0",
