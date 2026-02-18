@@ -1,0 +1,15 @@
+{
+  "name": "perf-check-api",
+  "description": "Website performance, SEO, Lighthouse, and link checking API. Powers audit-website and seo-audit skills.",
+  "version": "1.0.0",
+  "author": "clawsenberg",
+  "endpoints": [
+    { "path": "/check", "method": "GET", "price": "$0.01", "description": "Full performance check: response time, SSL, DNS, security headers" },
+    { "path": "/lighthouse", "method": "GET", "price": "$0.03", "description": "Google PageSpeed Insights: Core Web Vitals, mobile + desktop scores" },
+    { "path": "/seo", "method": "GET", "price": "$0.02", "description": "SEO audit: title, meta, headings, OG tags, schema.org, scored report" },
+    { "path": "/links", "method": "GET", "price": "$0.02", "description": "Link checker: find broken links, redirects, internal/external analysis" },
+    { "path": "/health", "method": "GET", "price": "free", "description": "Health check" }
+  ],
+  "network": "eip155:84532",
+  "tags": ["performance", "seo", "lighthouse", "website-audit", "link-checker"]
+}

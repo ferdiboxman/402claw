@@ -1,0 +1,41 @@
+{
+  "name": "web-intel-api",
+  "description": "Extract structured data, summaries, and comparisons from any URL. Powered by x402 micropayments.",
+  "version": "1.0.0",
+  "author": "402claw",
+  "endpoints": [
+    {
+      "path": "/extract",
+      "method": "POST",
+      "price": "$0.01",
+      "description": "Extract structured data (title, content, links, images, metadata, OpenGraph, JSON-LD) from a URL.",
+      "input": { "url": "string", "fields": "string[] (optional)" },
+      "output": "ExtractedData"
+    },
+    {
+      "path": "/summarize",
+      "method": "POST",
+      "price": "$0.02",
+      "description": "Summarize a web page with key points, entities, and sentiment.",
+      "input": { "url": "string", "maxLength": "number (optional, default 500)" },
+      "output": "SummaryData"
+    },
+    {
+      "path": "/compare",
+      "method": "POST",
+      "price": "$0.03",
+      "description": "Compare two web pages: similarities, differences, recommendation.",
+      "input": { "urls": "[string, string]" },
+      "output": "CompareData"
+    },
+    {
+      "path": "/health",
+      "method": "GET",
+      "price": "free",
+      "description": "Health check and endpoint listing."
+    }
+  ],
+  "network": "eip155:84532",
+  "payTo": "0x5C78C7E37f3cCB01059167BaE3b4622b44f97D0F",
+  "tags": ["web", "extraction", "intelligence", "scraping", "summarization"]
+}

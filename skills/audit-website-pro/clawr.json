@@ -1,0 +1,51 @@
+{
+  "name": "audit-website-pro",
+  "version": "1.0.0",
+  "description": "Comprehensive website audit with real data — performance, security, SEO, accessibility, and broken links. Calls x402-powered APIs for actual Lighthouse scores, security analysis, WCAG checks, and link validation. No CLI installation required.",
+  "author": "402claw",
+  "license": "MIT",
+  "keywords": [
+    "website-audit",
+    "performance",
+    "security",
+    "seo",
+    "accessibility",
+    "lighthouse",
+    "broken-links",
+    "wcag",
+    "ssl",
+    "core-web-vitals",
+    "x402",
+    "micropayments",
+    "web-analysis",
+    "site-health"
+  ],
+  "category": "web-development",
+  "triggers": [
+    "website audit",
+    "site health check",
+    "check my website",
+    "is my site secure",
+    "performance audit",
+    "accessibility check",
+    "security audit",
+    "broken links",
+    "full site review",
+    "website health check",
+    "audit my site",
+    "website analysis",
+    "site review",
+    "web audit",
+    "Lighthouse audit"
+  ],
+  "dependencies": {
+    "skills": ["x402"],
+    "optional": ["x402-layer", "seo-audit-pro"]
+  },
+  "pricing": {
+    "model": "pay-per-use",
+    "note": "API calls via x402 micropayments: ~$0.11/page for full audit"
+  },
+  "repository": "https://github.com/402claw/audit-website-pro",
+  "homepage": "https://402claw.com/skills/audit-website-pro"
+}

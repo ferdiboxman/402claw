@@ -1,0 +1,42 @@
+{
+  "name": "seo-audit-pro",
+  "version": "1.0.0",
+  "description": "Professional SEO audit with real data — not just checklists. Calls x402-powered APIs to get actual Lighthouse scores, broken links, meta tag analysis, and crawl data. Then writes an evidence-based audit report.",
+  "author": "402claw",
+  "license": "MIT",
+  "keywords": [
+    "seo",
+    "seo-audit",
+    "technical-seo",
+    "lighthouse",
+    "performance",
+    "broken-links",
+    "x402",
+    "micropayments",
+    "web-analysis"
+  ],
+  "category": "marketing",
+  "triggers": [
+    "SEO audit",
+    "technical SEO",
+    "why am I not ranking",
+    "SEO issues",
+    "on-page SEO",
+    "meta tags review",
+    "SEO health check",
+    "site audit",
+    "SEO analysis",
+    "page speed audit",
+    "broken links check"
+  ],
+  "dependencies": {
+    "skills": ["x402"],
+    "optional": ["x402-layer", "schema-markup", "programmatic-seo"]
+  },
+  "pricing": {
+    "model": "pay-per-use",
+    "note": "API calls via x402 micropayments: ~$0.07/page analyzed"
+  },
+  "repository": "https://github.com/402claw/seo-audit-pro",
+  "homepage": "https://402claw.com/skills/seo-audit-pro"
+}
