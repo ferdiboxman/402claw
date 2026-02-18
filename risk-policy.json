@@ -1,0 +1,100 @@
+{
+  "version": "1",
+  "project": "402claw",
+  "description": "Risk-tiered merge policy for 402claw - x402 payment platform",
+  
+  "riskTierRules": {
+    "critical": {
+      "paths": [
+        "prototypes/csv-api/src/cloudflare-worker.js",
+        "prototypes/cli/src/control-plane.js",
+        "**/*.env*",
+        "**/secrets/**",
+        "**/wrangler.toml"
+      ],
+      "description": "Payment processing, secrets, and infrastructure"
+    },
+    "high": {
+      "paths": [
+        "prototypes/cli/src/**",
+        "prototypes/csv-api/src/**",
+        "cloudflare/**",
+        "package.json"
+      ],
+      "description": "Core CLI and dispatcher logic"
+    },
+    "medium": {
+      "paths": [
+        "frontend/src/**",
+        "prototypes/*/tests/**"
+      ],
+      "description": "Frontend and tests"
+    },
+    "low": {
+      "paths": [
+        "docs/**",
+        "**/*.md",
+        "research/**"
+      ],
+      "description": "Documentation and research"
+    }
+  },
+
+  "mergePolicy": {
+    "critical": {
+      "requiredChecks": [
+        "risk-policy-gate",
+        "ci-pipeline",
+        "security-review",
+        "human-review"
+      ],
+      "autoMerge": false,
+      "requireHumanApproval": true
+    },
+    "high": {
+      "requiredChecks": [
+        "risk-policy-gate",
+        "ci-pipeline",
+        "code-review-agent"
+      ],
+      "autoMerge": false,
+      "requireHumanApproval": false
+    },
+    "medium": {
+      "requiredChecks": [
+        "risk-policy-gate",
+        "ci-pipeline"
+      ],
+      "autoMerge": true,
+      "requireHumanApproval": false
+    },
+    "low": {
+      "requiredChecks": [
+        "risk-policy-gate"
+      ],
+      "autoMerge": true,
+      "requireHumanApproval": false
+    }
+  },
+
+  "verificationRules": {
+    "requireTests": true,
+    "requireBuildPass": true,
+    "testCommand": "npm test",
+    "buildCommand": "npm run build"
+  },
+
+  "agentGuidance": {
+    "context": [
+      "This is a x402 payment platform for API monetization",
+      "CLI deploys paid APIs to Cloudflare Workers",
+      "x402 payments use USDC on Base (mainnet)",
+      "Dispatcher handles payment verification via CDP facilitator"
+    ],
+    "securityNotes": [
+      "Never commit API keys or wallet private keys",
+      "Payment amounts are in microunits (10000 = $0.01)",
+      "Always verify payTo address matches expected wallet"
+    ]
+  }
+}

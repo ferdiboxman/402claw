@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSession } from "@/hooks/use-session";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -335,7 +336,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const { walletAddress } = useSession();
   const [snapshots, setSnapshots] = useState<Record<TrendWindow, WindowSnapshot>>({
     today: emptySnapshot("today"),
     week: emptySnapshot("week"),
@@ -373,30 +374,6 @@ export default function Dashboard() {
 
   const localDeployCommand = useMemo(() => buildDeployCommand(form), [form]);
   const deployCommand = previewCommand || localDeployCommand;
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadSession = async () => {
-      try {
-        const response = await fetch("/api/auth/session", { cache: "no-store" });
-        const payload = (await response.json()) as SessionResponse;
-        if (cancelled) return;
-        if (payload.ok && payload.authenticated && payload.session) {
-          setWalletAddress(payload.session.walletAddress);
-        }
-      } catch {
-        if (cancelled) return;
-        setWalletAddress(null);
-      }
-    };
-
-    loadSession();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;

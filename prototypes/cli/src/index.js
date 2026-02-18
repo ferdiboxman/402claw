@@ -42,6 +42,35 @@ import {
   defaultD1StoragePath,
   resolveStorageConfig,
 } from "./storage/index.js";
+import {
+  loadOrCreateWallet,
+  createSigner,
+  saveRegistration,
+  loadRegistration,
+  defaultWalletPath,
+  defaultRegistrationPath,
+} from "./agent-network/wallet.js";
+import {
+  buildAgentMetadata,
+  toDataURI,
+  registerAgent as registerAgentOnChain,
+  setAgentMetadata as setMetadataOnChain,
+  getAgentInfo,
+} from "./agent-network/registry.js";
+import {
+  signRequest,
+  createSignedFetch,
+  verifySignature,
+} from "./agent-network/auth.js";
+import {
+  getAgentReputation,
+  giveFeedback,
+} from "./agent-network/reputation.js";
+import {
+  searchAgents,
+  callAgentSkill,
+  formatAgentList,
+} from "./agent-network/discovery.js";
 
 const COMMAND_SCOPE = Object.freeze({
   deploy: "deploy",
@@ -488,6 +517,17 @@ Payout commands:
   withdrawals [--tenant <slug>] [--owner <user-id>] [--control-plane <path>]
   withdraw --tenant <slug> --amount <usd> --to <wallet-address> [--registry <path>] [--control-plane <path>]
   withdraw-batch [--limit <n>] [--dry-run <true|false>] [--reference-prefix <value>] [--control-plane <path>]
+
+Agent Network commands:
+  register <name> --description <desc> [--endpoint <url>] [--skill <name>] [--network <mainnet|testnet>] [--wallet <path>]
+  find <query> [--limit <n>] [--network <mainnet|testnet>] [--json]
+  call <agent-id> <skill> [--payload <json>] [--network <mainnet|testnet>] [--wallet <path>]
+  reputation <agent-id> [--network <mainnet|testnet>]
+  feedback <agent-id> [value] [--tag1 <tag>] [--tag2 <tag>] [--wallet <path>]
+  agent-info <agent-id> [--network <mainnet|testnet>]
+  wallet [create|show] [--wallet <path>] [--password <pass>]
+  message send <address> <text> [--env <production|dev>] [--wallet <path>]
+  message inbox [--limit <n>] [--env <production|dev>] [--wallet <path>]
 
 Global options:
   --api-key <key>            API key for authenticated commands
@@ -1606,6 +1646,212 @@ async function run() {
         },
         storage,
       });
+      return;
+    }
+
+    // ── Agent Network Commands ──────────────────────────────────────
+
+    if (command === "register") {
+      const network = flags.network || "mainnet";
+      const walletPath = flags.wallet || defaultWalletPath();
+      const { wallet, created, path: wp } = loadOrCreateWallet(walletPath, flags.password);
+
+      if (created) {
+        console.log(`New wallet created: ${wallet.address}`);
+        console.log(`  Saved to: ${wp}`);
+        console.log(`  ⚠️  Fund this wallet with ETH on Base before registering.`);
+      }
+
+      const name = flags.name || positionals[0];
+      const description = flags.description || "A Clawr agent on the 402claw network";
+      if (!name) {
+        throw new Error("register requires --name <agent-name> or positional name");
+      }
+
+      const metadata = buildAgentMetadata({
+        name,
+        description,
+        walletAddress: wallet.address,
+        httpEndpoint: flags.endpoint,
+        skills: flags.skill ? (Array.isArray(flags.skill) ? flags.skill : [flags.skill]).map(s => ({ name: s })) : [],
+        x402Support: true,
+      });
+
+      const agentURI = toDataURI(metadata);
+      const signer = createSigner(wallet.privateKey, network);
+      const result = await registerAgentOnChain(signer, agentURI, network);
+
+      saveRegistration({
+        agentId: result.agentId,
+        agentURI,
+        registeredAt: new Date().toISOString(),
+        registryAddress: signer.provider ? "registry" : "unknown",
+        txHash: result.txHash,
+        network,
+        name,
+        walletAddress: wallet.address,
+      });
+
+      commandResult = {
+        ok: true,
+        agentId: result.agentId,
+        name,
+        wallet: wallet.address,
+        txHash: result.txHash,
+        network,
+      };
+      console.log(JSON.stringify(commandResult, null, 2));
+      return;
+    }
+
+    if (command === "find" || command === "search") {
+      const query = positionals[0] || flags.query;
+      const network = flags.network || "mainnet";
+      const limit = Number(flags.limit || 20);
+
+      const agents = await searchAgents(query, { network, limit });
+
+      if (flags.json) {
+        commandResult = { ok: true, query, total: agents.length, agents };
+        console.log(JSON.stringify(commandResult, null, 2));
+      } else {
+        console.log(formatAgentList(agents));
+        console.log(`\n${agents.length} agent(s) found.`);
+      }
+      return;
+    }
+
+    if (command === "call") {
+      const agentId = positionals[0];
+      const skill = positionals[1];
+      if (!agentId) throw new Error("call requires agent ID");
+      if (!skill) throw new Error("call requires skill name");
+
+      const network = flags.network || "mainnet";
+      let wallet = null;
+      const walletPath = flags.wallet || defaultWalletPath();
+      try {
+        const loaded = loadOrCreateWallet(walletPath, flags.password);
+        wallet = createSigner(loaded.wallet.privateKey, network);
+      } catch { /* proceed without wallet */ }
+
+      const payload = flags.payload ? JSON.parse(flags.payload) : {};
+      const result = await callAgentSkill(agentId, skill, payload, { wallet, network });
+
+      commandResult = { ok: true, ...result };
+      console.log(JSON.stringify(commandResult, null, 2));
+      return;
+    }
+
+    if (command === "reputation") {
+      const agentId = positionals[0];
+      if (!agentId) throw new Error("reputation requires agent ID");
+
+      const network = flags.network || "mainnet";
+      const rep = await getAgentReputation(agentId, network);
+
+      commandResult = { ok: true, agentId, ...rep };
+      console.log(JSON.stringify(commandResult, null, 2));
+      return;
+    }
+
+    if (command === "feedback") {
+      const agentId = positionals[0];
+      const value = Number(positionals[1] || flags.value || 1);
+      if (!agentId) throw new Error("feedback requires agent ID");
+
+      const network = flags.network || "mainnet";
+      const walletPath = flags.wallet || defaultWalletPath();
+      const { wallet } = loadOrCreateWallet(walletPath, flags.password);
+      const signer = createSigner(wallet.privateKey, network);
+
+      const txHash = await giveFeedback(
+        signer, agentId, value,
+        flags.tag1 || "quality",
+        flags.tag2 || "",
+        flags.endpoint || "",
+        network,
+      );
+
+      commandResult = { ok: true, agentId, value, txHash };
+      console.log(JSON.stringify(commandResult, null, 2));
+      return;
+    }
+
+    if (command === "agent-info") {
+      const agentId = positionals[0];
+      if (!agentId) throw new Error("agent-info requires agent ID");
+
+      const network = flags.network || "mainnet";
+      const info = await getAgentInfo(agentId, network);
+
+      commandResult = { ok: true, ...info };
+      console.log(JSON.stringify(commandResult, null, 2));
+      return;
+    }
+
+    if (command === "wallet") {
+      const subCmd = positionals[0] || "show";
+      const walletPath = flags.wallet || defaultWalletPath();
+
+      if (subCmd === "create" || subCmd === "init") {
+        const { wallet, created, path: wp } = loadOrCreateWallet(walletPath, flags.password);
+        commandResult = { ok: true, address: wallet.address, created, path: wp };
+        console.log(JSON.stringify(commandResult, null, 2));
+        return;
+      }
+
+      if (subCmd === "show") {
+        const { wallet } = loadOrCreateWallet(walletPath, flags.password);
+        const reg = loadRegistration();
+        commandResult = {
+          ok: true,
+          address: wallet.address,
+          walletPath,
+          registration: reg || null,
+        };
+        console.log(JSON.stringify(commandResult, null, 2));
+        return;
+      }
+
+      throw new Error(`unknown wallet subcommand: ${subCmd}`);
+    }
+
+    if (command === "message") {
+      const subCmd = positionals[0];
+      if (!subCmd) throw new Error("message requires subcommand: send, inbox");
+
+      const { AgentMessaging } = await import("./agent-network/messaging.js");
+      const walletPath = flags.wallet || defaultWalletPath();
+      const { wallet } = loadOrCreateWallet(walletPath, flags.password);
+      const messaging = new AgentMessaging(wallet.privateKey, {
+        env: flags.env || "production",
+      });
+
+      try {
+        const info = await messaging.start();
+        console.error(`XMTP client: ${info.address} (${info.env})`);
+
+        if (subCmd === "send") {
+          const recipient = positionals[1];
+          const text = positionals[2] || flags.text;
+          if (!recipient) throw new Error("message send requires recipient address");
+          if (!text) throw new Error("message send requires message text");
+
+          const result = await messaging.sendMessage(recipient, text);
+          commandResult = { ok: true, ...result };
+          console.log(JSON.stringify(commandResult, null, 2));
+        } else if (subCmd === "inbox") {
+          const limit = Number(flags.limit || 10);
+          const conversations = await messaging.getInbox(limit);
+          commandResult = { ok: true, total: conversations.length, conversations };
+          console.log(JSON.stringify(commandResult, null, 2));
+        } else {
+          throw new Error(`unknown message subcommand: ${subCmd}`);
+        }
+      } finally {
+        await messaging.stop();
+      }
       return;
     }
 

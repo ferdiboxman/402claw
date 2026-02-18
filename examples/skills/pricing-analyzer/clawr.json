@@ -1,0 +1,77 @@
+{
+  "$schema": "https://clawr.ai/schemas/skill-v1.json",
+  "name": "pricing-analyzer",
+  "version": "1.0.0",
+  "description": "Analyze and optimize your SaaS pricing strategy",
+  "author": "clawr",
+  
+  "pricing": {
+    "model": "per-invocation",
+    "price": "0.25",
+    "currency": "USDC"
+  },
+  
+  "input": {
+    "type": "object",
+    "required": ["product", "currentPricing"],
+    "properties": {
+      "product": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "targetMarket": { "type": "string" },
+          "valueMetric": { "type": "string" }
+        }
+      },
+      "currentPricing": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string" },
+          "tiers": { "type": "array" },
+          "freeTrialDays": { "type": "number" }
+        }
+      },
+      "competitors": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "pricing": { "type": "string" }
+          }
+        }
+      },
+      "goals": {
+        "type": "string",
+        "enum": ["maximize-revenue", "maximize-adoption", "enterprise-focus"],
+        "default": "maximize-revenue"
+      }
+    }
+  },
+  
+  "output": {
+    "type": "object",
+    "properties": {
+      "analysis": { "type": "string" },
+      "issues": { "type": "array" },
+      "recommendations": { "type": "array" },
+      "proposedPricing": { "type": "object" },
+      "expectedImpact": { "type": "object" }
+    }
+  },
+  
+  "runtime": {
+    "type": "prompt",
+    "model": "claude-sonnet-4-5",
+    "systemPrompt": "prompts/main.md",
+    "maxTokens": 4000,
+    "timeout": 90
+  },
+  
+  "metadata": {
+    "category": "strategy",
+    "tags": ["pricing", "saas", "strategy", "monetization"],
+    "icon": "💰"
+  }
+}

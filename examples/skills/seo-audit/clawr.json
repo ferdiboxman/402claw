@@ -1,0 +1,81 @@
+{
+  "$schema": "https://clawr.ai/schemas/skill-v1.json",
+  "name": "seo-audit",
+  "version": "1.0.0",
+  "description": "Audit any landing page for SEO issues like a senior growth operator",
+  "author": "clawr",
+  
+  "pricing": {
+    "model": "per-invocation",
+    "price": "0.05",
+    "currency": "USDC"
+  },
+  
+  "input": {
+    "type": "object",
+    "required": ["url"],
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "URL of the page to audit"
+      },
+      "depth": {
+        "type": "string",
+        "enum": ["quick", "standard", "deep"],
+        "default": "standard",
+        "description": "Audit depth - quick (30s), standard (2min), deep (5min)"
+      },
+      "competitors": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional competitor URLs to compare against"
+      }
+    }
+  },
+  
+  "output": {
+    "type": "object",
+    "properties": {
+      "score": {
+        "type": "number",
+        "description": "Overall SEO score 0-100"
+      },
+      "grade": {
+        "type": "string",
+        "enum": ["A", "B", "C", "D", "F"]
+      },
+      "critical": {
+        "type": "array",
+        "description": "Must-fix issues"
+      },
+      "warnings": {
+        "type": "array",
+        "description": "Should-fix issues"
+      },
+      "recommendations": {
+        "type": "array",
+        "description": "Prioritized action items"
+      }
+    }
+  },
+  
+  "runtime": {
+    "type": "prompt",
+    "model": "claude-sonnet-4-5",
+    "systemPrompt": "prompts/main.md",
+    "maxTokens": 4000,
+    "timeout": 120
+  },
+  
+  "metadata": {
+    "category": "marketing",
+    "tags": ["seo", "audit", "landing-page", "growth"],
+    "icon": "🔍",
+    "examples": [
+      {
+        "input": { "url": "https://example.com", "depth": "standard" },
+        "description": "Basic landing page audit"
+      }
+    ]
+  }
+}

@@ -1,132 +1,110 @@
-# AGENTS.md - Instructions for AI Agents
+# AGENTS.md - Harness Engineering Guidelines
 
-This project is being developed by multiple AI agents. Follow these guidelines.
+This repository uses automated agent workflows with risk-tiered policies.
 
-## Project Overview
+## Risk Tiers
 
-**402claw** is a platform for deploying paid APIs with one command. 
+Changes are automatically classified by risk:
 
-Core value proposition:
-- Upload CSV/JSON → Get REST API
-- x402 micropayments built-in
-- USDC on Base blockchain
-- 5% platform fee (vs RapidAPI's 25%)
+| Tier | Paths | Auto-merge | Human Review |
+|------|-------|------------|--------------|
+| 🔴 Critical | auth, secrets, migrations | ❌ | Required |
+| 🟠 High | routes, services, API | ❌ | Agent review |
+| 🟡 Medium | components, utils | ✅ | Agent review |
+| 🟢 Low | docs, tests | ✅ | Optional |
 
-## Your Role
+## Agent Workflow
 
-You are one of multiple AI agents working on this project. Your job is to:
+### Phase 1: Planning (reasoning: xhigh)
+1. Read the task/issue completely
+2. Scan relevant codebase areas
+3. Identify risk tier of changes
+4. Build verification plan BEFORE coding
 
-1. **Research** - Deep dive into relevant topics
-2. **Document** - Write findings in markdown
-3. **Prototype** - Build experimental code
-4. **Iterate** - Improve based on findings
+### Phase 2: Implementation (reasoning: high)
+1. Implement with tests in mind
+2. Write tests alongside code
+3. Run tests frequently (after each significant change)
+4. Check against original spec regularly
 
-## File Organization
+### Phase 3: Verification (reasoning: xhigh)
+1. Run full test suite
+2. Verify against original task spec (not your own code)
+3. Check edge cases explicitly
+4. Review for security issues
+5. Ensure no console.logs or debug code
 
+## Self-Verification Checklist
+
+Before marking work complete, verify:
+
+- [ ] All tests pass (`npm test` / `swift test`)
+- [ ] Code matches the original spec exactly
+- [ ] Edge cases are handled
+- [ ] No hardcoded secrets or credentials
+- [ ] No debug code (console.log, print statements)
+- [ ] Error handling is complete
+- [ ] Types are explicit (no `any` in TypeScript)
+
+## Loop Detection
+
+If you've edited the same file 5+ times:
+1. STOP and step back
+2. Re-read the original task spec
+3. Consider a different approach
+4. Ask for clarification if needed
+
+**Warning signs of doom loops:**
+- Making small variations to the same broken approach
+- Tests keep failing with similar errors
+- Repeatedly editing the same lines
+
+## Context Injection
+
+The following context is automatically provided:
+- Directory structure of relevant paths
+- Available tools and their versions
+- Time budget warnings (if applicable)
+- Risk tier of current changes
+
+## Evidence Requirements
+
+### For API changes:
+- Integration tests covering happy path + error cases
+- API documentation updated
+
+### For UI changes:
+- Screenshot/recording of the change
+- Accessibility check passed
+- Mobile responsiveness verified
+
+### For Database changes:
+- Migration tested both up and down
+- Rollback plan documented
+- Performance impact assessed
+
+## Commit Messages
+
+Use conventional commits:
 ```
-research/
-├── claude-research/    # Clawsenberg's research (DO NOT MODIFY)
-├── codex-research/     # Your research goes here
-│   ├── deep-dives/     # In-depth analysis
-│   ├── prototypes/     # Code experiments
-│   └── findings/       # Key discoveries
-└── shared/             # Consolidated docs (read-only)
-```
-
-**Rules:**
-- Put YOUR work in `codex-research/` (or your agent name)
-- Don't modify other agents' research folders
-- Shared folder is for consolidated docs only
-
-## Research Already Done (by Claude/Clawsenberg)
-
-Read these first:
-1. `research/shared/402claw-complete-research-package.md` - START HERE
-2. `research/claude-research/402claw-final-mvp-plan.md` - MVP plan
-3. `research/claude-research/402claw-technical-spec.md` - Architecture
-
-Key findings already established:
-- x402 is the payment protocol (Coinbase + Stripe support)
-- Cloudflare Workers for hosting
-- Fork csv2api for CSV-to-API functionality
-- 5% withdrawal fee business model
-- 4-week MVP timeline
-
-## Research Gaps (Need Your Help)
-
-1. **x402 Protocol Deep Dive**
-   - Clone and analyze: https://github.com/coinbase/x402
-   - Understand the payment flow in detail
-   - Document edge cases and limitations
-
-2. **Cloudflare Workers for Platforms**
-   - How to deploy user code programmatically
-   - Multi-tenant isolation patterns
-   - Cost optimization strategies
-
-3. **Competitive Analysis**
-   - RapidAPI detailed teardown
-   - Val.town user experience
-   - Seren Desktop marketplace model
-
-4. **Prototype Building**
-   - Build a working x402 payment flow
-   - CSV-to-API with x402 middleware
-   - CLI proof of concept
-
-## How to Do Deep Research
-
-Don't rush. Take your time:
-
-1. **Clone repos** - Read actual code, not just READMEs
-2. **Build things** - Understanding comes from doing
-3. **Document thoroughly** - 5000+ words per topic
-4. **Include code snippets** - Show don't tell
-5. **Cite sources** - URLs for everything
-
-## Output Format
-
-When writing research documents:
-
-```markdown
-# Topic Name
-
-## Executive Summary
-[2-3 sentences]
-
-## Key Findings
-[Bullet points]
-
-## Detailed Analysis
-[Multiple sections with depth]
-
-## Code Examples
-[Actual code that works]
-
-## Recommendations
-[What should we do?]
-
-## Sources
-[URLs and references]
+feat(scope): description
+fix(scope): description
+docs(scope): description
+test(scope): description
+refactor(scope): description
 ```
 
-## Communication
+## When to Ask for Help
 
-- Write findings to markdown files
-- Don't assume the other agent knows your work
-- Cross-reference: "See claude-research/xyz.md for related analysis"
+- Task spec is ambiguous
+- You've been stuck for 3+ iterations
+- Changes touch critical security paths
+- You're unsure about architectural decisions
 
-## Current Priorities
+## PR Requirements
 
-1. Understand x402 protocol deeply
-2. Validate technical architecture
-3. Build proof-of-concept prototypes
-4. Identify risks and unknowns
-
-## Questions?
-
-If something is unclear, document your assumptions and proceed. We can iterate.
-
----
-
-*Last updated: 2026-02-12*
+1. Clear description of what changed and why
+2. Link to original issue/task
+3. Test coverage for new code
+4. Screenshots for UI changes
+5. Risk tier label applied automatically
