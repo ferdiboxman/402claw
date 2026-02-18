@@ -9,9 +9,10 @@
     "dev": "tsx src/server.ts"
   },
   "dependencies": {
-    "@x402/express": "^2.3.0",
+    "@coinbase/x402": "^2.1.0",
     "@x402/core": "^2.3.0",
     "@x402/evm": "^2.3.0",
+    "@x402/express": "^2.3.0",
     "@x402/extensions": "^2.3.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2"

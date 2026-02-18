@@ -3,16 +3,20 @@ import cors from "cors";
 import { paymentMiddleware, x402ResourceServer } from "@x402/express";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { HTTPFacilitatorClient } from "@x402/core/server";
+import { createFacilitatorConfig } from "@coinbase/x402";
 import intelRoutes from "./routes/intel.js";
 
 const PORT = parseInt(process.env.PORT || "3002", 10);
 const PAY_TO = (process.env.PAY_TO ||
   "0x5C78C7E37f3cCB01059167BaE3b4622b44f97D0F") as `0x${string}`;
 const NETWORK = (process.env.NETWORK || "eip155:84532") as `${string}:${string}`;
-const FACILITATOR_URL =
-  process.env.FACILITATOR_URL || "https://x402.org/facilitator";
 
-const facilitatorClient = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
+const cdpKeyId = process.env.CDP_API_KEY_ID;
+const cdpKeySecret = process.env.CDP_API_KEY_SECRET;
+const facilitatorConfig = cdpKeyId && cdpKeySecret
+  ? createFacilitatorConfig(cdpKeyId, cdpKeySecret)
+  : { url: process.env.FACILITATOR_URL || "https://www.x402.org/facilitator" };
+const facilitatorClient = new HTTPFacilitatorClient(facilitatorConfig);
 const resourceServer = new x402ResourceServer(facilitatorClient).register(
   NETWORK,
   new ExactEvmScheme()
